@@ -517,7 +517,6 @@ public final class BlurBars {
             keepMirrored();
             ChatScreen chat = CHATS.get(decor);
             if (chat != null) chat.onPreDraw();
-            HomeBar.onPreDraw(decor);
             return true;
         });
         decor.post(scan);
@@ -537,18 +536,11 @@ public final class BlurBars {
         hideIds[HIDE_VIEWS.length + 1] = navigationId;
         List<View> found = new ArrayList<>();
         collect(decor, hideIds, id(context, CHAT_LIST), found);
-        // The main screen's tab bar and gesture strip get the four-state blur instead.
-        boolean main = HomeBar.isMain(decor);
         for (View view : found) {
             int id = view.getId();
             if (id == statusId) {
                 statusBar(view, chatHeader);
             } else if (id == navigationId) {
-                if (main) {
-                    MIRRORED.remove(view);
-                    HIDDEN.remove(view);
-                    continue;
-                }
                 View artwork = find(decor, TABS_ARTWORK);
                 if (artwork != null) mirror(view, artwork, false);
                 else hide(view);
@@ -557,7 +549,6 @@ public final class BlurBars {
             }
         }
 
-        if (main) HomeBar.scan(decor);
         if (chatHeader == null || !chatHeader.isAttachedToWindow()) {
             CHATS.remove(decor);
             return;
