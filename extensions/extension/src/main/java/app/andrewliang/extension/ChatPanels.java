@@ -45,7 +45,14 @@ final class ChatPanels {
 
     private ChatPanels() {}
 
-    static void apply(View decor, View skin, View content) {
+    /**
+     * @param skin    the chat background
+     * @param behind  the message list (its refresh layout). Not the content view: it holds this
+     *                panel, and drawing a parent of a view that is being recorded makes Android
+     *                start a second recording of it, which throws ("Recording currently in
+     *                progress") as soon as a panel opens in performance mode.
+     */
+    static void apply(View decor, View skin, View behind) {
         View container = find(decor, CONTAINER);
         if (container == null) return;
         View panel = visiblePanel(container);
@@ -75,13 +82,13 @@ final class ChatPanels {
             fresh = true;
         }
         if (frost.sources == null || frost.sources.length != 2 || frost.sources[0] != skin
-                || frost.sources[1] != content) {
-            frost.sources = new View[] {skin, content};
+                || frost.sources[1] != behind) {
+            frost.sources = new View[] {skin, behind};
             fresh = true;
         }
         // Redraw the frost only when what is behind it changed, not before every frame, so an
         // open panel does not keep the screen drawing.
-        boolean behindChanged = (skin != null && skin.isDirty()) || (content != null && content.isDirty());
+        boolean behindChanged = (skin != null && skin.isDirty()) || (behind != null && behind.isDirty());
         if (fresh || behindChanged) container.invalidate();
     }
 
@@ -148,9 +155,10 @@ final class ChatPanels {
     private static void clearSolidBackgrounds(View view, State state) {
         if (view == null) return;
         Drawable background = view.getBackground();
-        if (background instanceof ColorDrawable && !(background instanceof FrostDrawable)) {
+        // A clear ColorDrawable, not null: LINE's panel code may read or cast the background.
+        if (background instanceof ColorDrawable && ((ColorDrawable) background).getColor() != Color.TRANSPARENT) {
             if (!state.backgrounds.containsKey(view)) state.backgrounds.put(view, background);
-            view.setBackground(null);
+            view.setBackground(new ColorDrawable(Color.TRANSPARENT));
         }
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
@@ -262,7 +270,10 @@ final class ChatPanels {
                 drawable.host.getLocationInWindow(drawable.hostLocation);
                 int left = drawable.hostLocation[0] + bounds.left;
                 int top = drawable.hostLocation[1] + bounds.top;
-                for (View source : drawable.sources) record(recorded, source, left, top, drawable.viewLocation);
+                for (View source : drawable.sources) {
+                    if (BlurBars.isSelfOrAncestor(source, drawable.host)) continue;
+                    record(recorded, source, left, top, drawable.viewLocation);
+                }
             } finally {
                 ProgressiveBlurDrawable.recording = false;
                 node.endRecording();
@@ -287,8 +298,14 @@ final class ChatPanels {
             view.getLocationInWindow(viewLocation);
             int save = canvas.save();
             canvas.translate(viewLocation[0] - left, viewLocation[1] - top);
-            view.draw(canvas);
-            canvas.restoreToCount(save);
+            try {
+                view.draw(canvas);
+            } catch (IllegalStateException nested) {
+                // Last resort if a view in [view] is mid-recording: skip it (only the blur behind
+                // the bar misses it for one frame) rather than crash LINE.
+            } finally {
+                canvas.restoreToCount(save);
+            }
         }
     }
 }

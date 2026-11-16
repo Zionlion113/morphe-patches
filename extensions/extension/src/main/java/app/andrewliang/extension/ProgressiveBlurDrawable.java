@@ -58,6 +58,8 @@ final class ProgressiveBlurDrawable extends Drawable {
 
     /** True while a region records its content. Pieces draw nothing then. */
     static boolean recording;
+    /** The view whose background or overlay is drawing now, so its parents are not recorded. */
+    static View drawingHost;
 
     /**
      * One pass of a Gaussian blur along [dir]. The distance from the edge is the y position, or
@@ -131,7 +133,12 @@ final class ProgressiveBlurDrawable extends Drawable {
                     && hostLocation[1] + bounds.bottom > union.top) {
                 // A piece outside the region, such as the gesture bar strip under an open
                 // keyboard, draws nothing, so the content is not recorded for it.
-                region.draw(canvas, union.width(), union.height(), above);
+                drawingHost = host;
+                try {
+                    region.draw(canvas, union.width(), union.height(), above);
+                } finally {
+                    drawingHost = null;
+                }
             }
             canvas.restoreToCount(save);
             return;
@@ -149,8 +156,13 @@ final class ProgressiveBlurDrawable extends Drawable {
         int save = canvas.save();
         canvas.clipRect(bounds);
         canvas.translate(union.left - hostLocation[0], union.top - hostLocation[1]);
-        region.draw(canvas, union.width(), union.height(), fade);
-        canvas.restoreToCount(save);
+        drawingHost = host;
+        try {
+            region.draw(canvas, union.width(), union.height(), fade);
+        } finally {
+            drawingHost = null;
+            canvas.restoreToCount(save);
+        }
     }
 
     @Override
@@ -170,6 +182,8 @@ final class ProgressiveBlurDrawable extends Drawable {
      */
     static final class Region {
         final boolean bottom;
+        /** The bottom fade goes on above the pieces (the chat input). Off for the home tab bar. */
+        boolean fadeAbove = true;
         private final View[] pieces;
         private final View[] sources;
         private final Rect union = new Rect();
@@ -228,7 +242,7 @@ final class ProgressiveBlurDrawable extends Drawable {
 
         /** Extra height of the bottom fade above the input bar. */
         int bottomFadeExtension(android.content.Context context) {
-            return bottom ? BlurBars.dp(context, BOTTOM_FADE_DP) : 0;
+            return bottom && fadeAbove ? BlurBars.dp(context, BOTTOM_FADE_DP) : 0;
         }
 
         /**
@@ -382,11 +396,21 @@ final class ProgressiveBlurDrawable extends Drawable {
         /** Draws [view] where it is on the screen, in the coordinates of the region. */
         private void record(Canvas canvas, View view, Rect union) {
             if (view == null || view.getVisibility() != View.VISIBLE || !view.isAttachedToWindow()) return;
+            // A parent of the view being drawn would make Android record that view again, inside
+            // its own recording, which throws. The view itself is fine: its children are done.
+            View host = drawingHost;
+            if (host != null && view != host && BlurBars.isSelfOrAncestor(view, host)) return;
             view.getLocationInWindow(viewLocation);
             int save = canvas.save();
             canvas.translate(viewLocation[0] - union.left, viewLocation[1] - union.top);
-            view.draw(canvas);
-            canvas.restoreToCount(save);
+            try {
+                view.draw(canvas);
+            } catch (IllegalStateException nested) {
+                // Last resort if a view in [view] is mid-recording: skip it (only the blur behind
+                // the bar misses it for one frame) rather than crash LINE.
+            } finally {
+                canvas.restoreToCount(save);
+            }
         }
 
         private static RenderEffect effect(Region region, int width, int height) {
