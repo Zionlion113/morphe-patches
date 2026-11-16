@@ -2,13 +2,19 @@ package app.andrewliang.extension;
 
 import android.app.Activity;
 import android.app.Application;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.PowerManager;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.ViewTreeObserver;
 import android.view.Window;
+import android.view.WindowInsetsController;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -19,15 +25,21 @@ import java.util.WeakHashMap;
 /**
  * Runtime part of the "[General] Transparent system bars with blur" patch for LINE.
  *
- * <p>LINE draws edge to edge, and paints its own views under the system bars: a status bar view in
- * each header ({@code status_bar_background}), a strip under the bottom tabs
- * ({@code main_navigation_bar_background}) and a strip under the chat input
- * ({@code chat_ui_bottom_padding_spacer}). A theme gives these views its own colors, which shows as
- * blocks of color. This class hides them, so the status bar and the gesture bar are clear.
+ * <p>LINE draws edge to edge, and paints its own views under the system bars. A theme gives these
+ * views its own colors, which shows as blocks of color. This class handles them like this:
+ * <ul>
+ *   <li>A status bar view above a header with artwork ({@code status_bar_background}) and the
+ *       gesture bar strip below the bottom tabs ({@code main_navigation_bar_background}) show the
+ *       artwork next to them, mirrored at the edge. See {@link MirroredArtworkDrawable}.</li>
+ *   <li>Other status bar views ({@code edge_to_edge_top}, or one with no artwork next to it) are
+ *       hidden, so the view behind them shows.</li>
+ *   <li>In a chat, the header and the input bar stay on top, and the messages scroll behind them.
+ *       The header, the input bar and the gesture bar strip get a {@link ProgressiveBlurDrawable}.
+ *       The messages behind them are blurred most at the screen edge.</li>
+ * </ul>
+ * The top bars of Compose screens are changed by the patch itself.
  *
- * <p>In a chat, the header stays on top and the messages scroll behind it. The header gets a
- * {@link ProgressiveBlurDrawable}: the messages behind it are blurred most at the top of the screen
- * and less toward the bottom of the header.
+ * <p>In Battery Saver, the blur turns into a plain dark scrim. This changes at once, with no restart.
  *
  * <p>All views are found by resource name, because the ids change between LINE versions. A view
  * that this LINE version does not have is skipped.
@@ -36,17 +48,21 @@ public final class BlurBars {
 
     private BlurBars() {}
 
-    /** Views that only paint a color under a system bar. */
-    private static final String[] BAR_VIEWS = {
-            "status_bar_background",
-            "main_navigation_bar_background",
-            "chat_ui_bottom_padding_spacer",
+    /** Status bar views to hide. */
+    private static final String[] HIDE_VIEWS = {
+            "edge_to_edge_top",
     };
+
+    private static final String STATUS_BAR = "status_bar_background";
+    private static final String HEADER_ARTWORK = "fallback_header_background";
+    private static final String HEADER_SEAMLESS = "seamless_header_background";
+    private static final String NAVIGATION_BAR = "main_navigation_bar_background";
+    private static final String TABS_ARTWORK = "bnb_background_image";
 
     /** Solid layers of the chat header. The blur takes their place. */
     private static final String[] CHAT_HEADER_LAYERS = {
-            "seamless_header_background",
-            "fallback_header_background",
+            HEADER_SEAMLESS,
+            HEADER_ARTWORK,
             "default_color_animation_layer",
     };
 
@@ -55,11 +71,15 @@ public final class BlurBars {
     private static final String CHAT_SKIN = "chat_ui_main_skin_view";
     private static final String CHAT_REFRESH = "chat_ui_message_list_refresh_layout";
     private static final String CHAT_LIST = "chathistory_message_list";
+    private static final String CHAT_INPUT = "chat_ui_message";
+    private static final String CHAT_INPUT_ROW = "chat_ui_input_bar_container";
+    private static final String CHAT_SPACER = "chat_ui_bottom_padding_spacer";
 
     /** A list that starts lower than this below the header has a banner above it. */
     private static final int BANNER_GAP_DP = 4;
 
     private static boolean registered;
+    private static volatile boolean powerSave;
 
     /** Resource ids by name. 0 when this LINE version has no such id. */
     private static final Map<String, Integer> IDS = new java.util.HashMap<>();
@@ -67,19 +87,23 @@ public final class BlurBars {
     /** Views kept invisible. LINE can make them visible again, so each frame checks them. */
     private static final Map<View, Boolean> HIDDEN = Collections.synchronizedMap(new WeakHashMap<>());
 
+    /** Bar views that show the artwork next to them. */
+    private static final Map<View, MirroredArtworkDrawable> MIRRORED = new WeakHashMap<>();
+
     /** Decor views that already have the listeners. */
     private static final Map<View, Boolean> WATCHED = new WeakHashMap<>();
 
     /** Decor views with a scan posted. */
     private static final Map<View, Boolean> PENDING = new WeakHashMap<>();
 
-    /** Chat screens: the header and the views that the blur draws. */
+    /** Chat screens by decor view. */
     private static final Map<View, ChatScreen> CHATS = new WeakHashMap<>();
 
     /** Called by the patch at the start of {@code LineApplication.onCreate}. */
     public static void init(Application application) {
         if (registered || application == null) return;
         registered = true;
+        watchPowerSave(application);
         application.registerActivityLifecycleCallbacks(new Application.ActivityLifecycleCallbacks() {
             @Override
             public void onActivityCreated(Activity activity, Bundle state) {
@@ -121,8 +145,66 @@ public final class BlurBars {
         window.setNavigationBarColor(enabled() ? 0 : color);
     }
 
+    /**
+     * The color of the status bar strip of a Compose top bar, as a packed Compose color. Clear
+     * while the switch is on, so the artwork behind it shows.
+     */
+    public static long composeStatusBarColor(long color) {
+        return enabled() ? 0L : color;
+    }
+
+    /**
+     * The modifier of the whole Compose top bar, status bar strip included. While the switch is on
+     * it is the artwork modifier, so the artwork fills the status bar too.
+     */
+    public static Object composeOuterModifier(Object artwork, Object empty) {
+        return enabled() ? artwork : empty;
+    }
+
+    /** The modifier of the bar below the status bar strip. Empty while the switch is on. */
+    public static Object composeInnerModifier(Object artwork, Object empty) {
+        return enabled() ? empty : artwork;
+    }
+
+    /**
+     * How the Compose top bar scales its artwork. While the switch is on the artwork is cropped
+     * instead of stretched, because it now fills a taller area.
+     */
+    public static Object composeArtworkScale(Object fillBounds, Object crop) {
+        return enabled() ? crop : fillBounds;
+    }
+
     static boolean enabled() {
         return LineSettings.blurSystemBars();
+    }
+
+    static boolean powerSave() {
+        return powerSave;
+    }
+
+    private static void watchPowerSave(Application application) {
+        PowerManager power = (PowerManager) application.getSystemService(Context.POWER_SERVICE);
+        if (power == null) return;
+        powerSave = power.isPowerSaveMode();
+        BroadcastReceiver receiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                powerSave = power.isPowerSaveMode();
+                for (ChatScreen chat : new ArrayList<>(CHATS.values())) {
+                    if (chat != null) chat.redraw();
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED);
+        try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                application.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                application.registerReceiver(receiver, filter);
+            }
+        } catch (RuntimeException ignored) {
+            // Without the receiver, the mode is read again when a chat opens.
+        }
     }
 
     private static void watch(Activity activity) {
@@ -148,7 +230,9 @@ public final class BlurBars {
             if (PENDING.put(decor, Boolean.TRUE) == null) decor.post(scan);
         });
         observer.addOnPreDrawListener(() -> {
+            if (!enabled()) return true;
             keepHidden();
+            keepMirrored();
             ChatScreen chat = CHATS.get(decor);
             if (chat != null) chat.onPreDraw();
             return true;
@@ -159,28 +243,99 @@ public final class BlurBars {
     private static void scan(View decor) {
         if (!enabled()) return;
         Context context = decor.getContext();
-        List<View> found = new ArrayList<>();
-        int[] barIds = new int[BAR_VIEWS.length];
-        for (int i = 0; i < BAR_VIEWS.length; i++) barIds[i] = id(context, BAR_VIEWS[i]);
-        int listId = id(context, CHAT_LIST);
-        collect(decor, barIds, listId, found);
-        for (View view : found) hide(view);
-
         int headerId = id(context, CHAT_HEADER);
-        View header = headerId == 0 ? null : decor.findViewById(headerId);
-        if (header == null || !header.isAttachedToWindow()) {
+        View chatHeader = headerId == 0 ? null : decor.findViewById(headerId);
+
+        int[] hideIds = new int[HIDE_VIEWS.length + 2];
+        for (int i = 0; i < HIDE_VIEWS.length; i++) hideIds[i] = id(context, HIDE_VIEWS[i]);
+        int statusId = id(context, STATUS_BAR);
+        int navigationId = id(context, NAVIGATION_BAR);
+        hideIds[HIDE_VIEWS.length] = statusId;
+        hideIds[HIDE_VIEWS.length + 1] = navigationId;
+        List<View> found = new ArrayList<>();
+        collect(decor, hideIds, id(context, CHAT_LIST), found);
+        for (View view : found) {
+            int id = view.getId();
+            if (id == statusId) {
+                statusBar(view, chatHeader);
+            } else if (id == navigationId) {
+                View artwork = find(decor, TABS_ARTWORK);
+                if (artwork != null) mirror(view, artwork, false);
+                else hide(view);
+            } else {
+                hide(view);
+            }
+        }
+
+        if (chatHeader == null || !chatHeader.isAttachedToWindow()) {
             CHATS.remove(decor);
             return;
         }
         ChatScreen chat = CHATS.get(decor);
-        if (chat == null || chat.header != header) {
+        if (chat == null || chat.header != chatHeader) {
             View content = find(decor, CHAT_CONTENT);
             if (content == null) return;
-            chat = new ChatScreen(header, content, find(decor, CHAT_SKIN), find(decor, CHAT_REFRESH),
-                    find(decor, CHAT_LIST));
+            chat = new ChatScreen(decor, chatHeader, content, find(decor, CHAT_SKIN), find(decor, CHAT_REFRESH),
+                    find(decor, CHAT_LIST), find(decor, CHAT_INPUT), find(decor, CHAT_SPACER));
             CHATS.put(decor, chat);
         }
         chat.update();
+    }
+
+    /**
+     * A header's status bar view. In a chat the blur covers it. Above artwork it shows the
+     * artwork. A seamless header already draws behind the status bar, so the view is hidden.
+     */
+    private static void statusBar(View status, View chatHeader) {
+        if (chatHeader != null && isInside(status, chatHeader)) {
+            hide(status);
+            return;
+        }
+        ViewParent parent = status.getParent();
+        if (!(parent instanceof View)) {
+            hide(status);
+            return;
+        }
+        View root = (View) parent;
+        View seamless = find(root, HEADER_SEAMLESS);
+        View artwork = find(root, HEADER_ARTWORK);
+        boolean seamlessShown = seamless != null && seamless.getVisibility() == View.VISIBLE
+                && seamless.getBackground() != null;
+        if (artwork != null && !seamlessShown && artwork.getVisibility() == View.VISIBLE) {
+            mirror(status, artwork, true);
+        } else {
+            hide(status);
+        }
+    }
+
+    private static boolean isInside(View view, View ancestor) {
+        for (ViewParent parent = view.getParent(); parent != null; parent = parent.getParent()) {
+            if (parent == ancestor) return true;
+        }
+        return false;
+    }
+
+    private static void mirror(View bar, View artwork, boolean barAbove) {
+        MirroredArtworkDrawable drawable = MIRRORED.get(bar);
+        if (drawable == null || drawable.artwork() != artwork) {
+            drawable = new MirroredArtworkDrawable(artwork, bar, barAbove);
+            MIRRORED.put(bar, drawable);
+        }
+        HIDDEN.remove(bar);
+        if (bar.getVisibility() == View.INVISIBLE) bar.setVisibility(View.VISIBLE);
+        if (bar.getBackground() != drawable) bar.setBackground(drawable);
+    }
+
+    /** LINE sets the theme color again on some changes. Each frame puts the artwork back. */
+    private static void keepMirrored() {
+        if (MIRRORED.isEmpty()) return;
+        for (Map.Entry<View, MirroredArtworkDrawable> entry : new ArrayList<>(MIRRORED.entrySet())) {
+            View bar = entry.getKey();
+            MirroredArtworkDrawable drawable = entry.getValue();
+            if (bar == null || drawable == null || !bar.isAttachedToWindow()) continue;
+            if (bar.getBackground() != drawable) bar.setBackground(drawable);
+            if (drawable.artwork().isDirty()) bar.invalidate();
+        }
     }
 
     /** Collects the views with one of [ids]. It does not walk into the message list. */
@@ -212,7 +367,7 @@ public final class BlurBars {
     }
 
     private static void keepHidden() {
-        if (HIDDEN.isEmpty() || !enabled()) return;
+        if (HIDDEN.isEmpty()) return;
         synchronized (HIDDEN) {
             for (View view : HIDDEN.keySet()) {
                 if (view != null && view.getVisibility() == View.VISIBLE) view.setVisibility(View.INVISIBLE);
@@ -238,32 +393,51 @@ public final class BlurBars {
     }
 
     /**
-     * One chat screen. The header is a sibling of the content and is drawn above it. LINE places
-     * the content below the header, so the message list is moved up behind the header and gets the
-     * same amount of top padding. Thus the first message still starts below the header.
+     * One chat screen. The header and the input bar are drawn above the content. LINE places the
+     * message list between them, so the list is stretched behind both, and gets the same amount of
+     * padding. Thus the first and the last message can still scroll clear of the bars.
      */
     private static final class ChatScreen {
+        final View decor;
         final View header;
         final View content;
         final View skin;
         final View refresh;
         final View list;
-        final ProgressiveBlurDrawable blur;
+        final View input;
+        final View spacer;
+        final ProgressiveBlurDrawable.Region top;
+        final ProgressiveBlurDrawable.Region bottom;
+        final ProgressiveBlurDrawable headerBlur;
+        final ProgressiveBlurDrawable inputBlur;
+        final ProgressiveBlurDrawable spacerBlur;
 
-        /** How far the list was moved up. */
-        int extended;
-        /** The list padding that this class set, to see when LINE sets its own. */
-        int setPadding = -1;
-        /** The refresh layout margin that this class set. */
-        int setMargin = Integer.MIN_VALUE;
+        /** How far the list was moved up, and down. */
+        int extendedTop;
+        int extendedBottom;
+        /** The list padding and refresh layout margins that this class set, to see LINE's own. */
+        int setPaddingTop = -1;
+        int setPaddingBottom = -1;
+        int setMarginTop = Integer.MIN_VALUE;
+        int setMarginBottom = Integer.MIN_VALUE;
 
-        ChatScreen(View header, View content, View skin, View refresh, View list) {
+        ChatScreen(View decor, View header, View content, View skin, View refresh, View list, View input,
+                   View spacer) {
+            this.decor = decor;
             this.header = header;
             this.content = content;
             this.skin = skin;
             this.refresh = refresh;
             this.list = list;
-            this.blur = new ProgressiveBlurDrawable(header, content, skin);
+            this.input = input;
+            this.spacer = spacer;
+            top = new ProgressiveBlurDrawable.Region(false, new View[] {header}, new View[] {skin, content});
+            // The input bar is not drawn into its own blur, so the list is the bottom source.
+            bottom = new ProgressiveBlurDrawable.Region(true, new View[] {input, spacer},
+                    new View[] {skin, refresh});
+            headerBlur = new ProgressiveBlurDrawable(header, top);
+            inputBlur = input == null ? null : new ProgressiveBlurDrawable(input, bottom);
+            spacerBlur = spacer == null ? null : new ProgressiveBlurDrawable(spacer, bottom);
         }
 
         void update() {
@@ -272,16 +446,55 @@ public final class BlurBars {
                 int id = id(context, name);
                 if (id != 0) hide(header.findViewById(id));
             }
-            if (header.getBackground() != blur) header.setBackground(blur);
+            applyBackgrounds();
             extendList();
         }
 
-        void onPreDraw() {
-            if (header.getBackground() != blur) {
-                if (!enabled()) return;
-                header.setBackground(blur);
+        void redraw() {
+            top.invalidate();
+            bottom.invalidate();
+        }
+
+        private void applyBackgrounds() {
+            if (header.getBackground() != headerBlur) header.setBackground(headerBlur);
+            if (input != null) {
+                if (input.getBackground() != inputBlur) input.setBackground(inputBlur);
+                // The row of the input box. The box and the buttons in it stay.
+                View row = find(input, CHAT_INPUT_ROW);
+                if (row != null && row.getBackground() != null) row.setBackground(null);
             }
-            if (content.isDirty() || (skin != null && skin.isDirty())) blur.invalidateSelf();
+            if (spacer != null) {
+                if (spacer.getVisibility() == View.INVISIBLE) spacer.setVisibility(View.VISIBLE);
+                if (spacer.getBackground() != spacerBlur) spacer.setBackground(spacerBlur);
+            }
+        }
+
+        void onPreDraw() {
+            applyBackgrounds();
+            boolean skinDirty = skin != null && skin.isDirty();
+            if (skinDirty || content.isDirty()) top.invalidate();
+            if (skinDirty || (refresh != null && refresh.isDirty())) bottom.invalidate();
+            lightIcons();
+        }
+
+        /** White system bar icons over a dark tint. */
+        private void lightIcons() {
+            boolean saver = powerSave();
+            boolean status = saver || LineSettings.blurTopDarkTint();
+            boolean navigation = saver || LineSettings.blurBottomDarkTint();
+            if (!status && !navigation) return;
+            if (Build.VERSION.SDK_INT >= 30) {
+                WindowInsetsController controller = decor.getWindowInsetsController();
+                if (controller == null) return;
+                int mask = (status ? WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS : 0)
+                        | (navigation ? WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS : 0);
+                if ((controller.getSystemBarsAppearance() & mask) != 0) controller.setSystemBarsAppearance(0, mask);
+            } else {
+                int flags = decor.getSystemUiVisibility();
+                int mask = (status ? View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR : 0)
+                        | (navigation && Build.VERSION.SDK_INT >= 26 ? View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR : 0);
+                if ((flags & mask) != 0) decor.setSystemUiVisibility(flags & ~mask);
+            }
         }
 
         private void extendList() {
@@ -296,41 +509,57 @@ public final class BlurBars {
             int headerTop = location[1];
             int headerBottom = headerTop + header.getHeight();
             refresh.getLocationInWindow(location);
-            // Where the list would start if this class had not moved it.
-            int listTop = location[1] + extended;
+            // Where the list would start and end if this class had not moved it.
+            int listTop = location[1] + extendedTop;
+            int listBottom = location[1] + refresh.getHeight() - extendedBottom;
 
-            int wanted;
+            int wantedTop;
             if (listTop <= headerTop) {
-                wanted = 0; // LINE already places the list behind the header.
-            } else if (listTop - headerBottom > dp(context(), BANNER_GAP_DP)) {
-                wanted = 0; // A banner is between the header and the list: keep it visible.
+                wantedTop = 0; // LINE already places the list behind the header.
+            } else if (listTop - headerBottom > dp(header.getContext(), BANNER_GAP_DP)) {
+                wantedTop = 0; // A banner is between the header and the list: keep it visible.
             } else {
-                wanted = listTop - headerTop;
+                wantedTop = listTop - headerTop;
             }
+            // Down to the bottom of the gesture bar strip, or of the input bar.
+            int barsBottom = bottom.union().bottom;
+            int wantedBottom = barsBottom > listBottom ? barsBottom - listBottom : 0;
 
             ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) refresh.getLayoutParams();
-            int baseMargin = params.topMargin == setMargin ? params.topMargin + extended : params.topMargin;
-            int basePadding = list.getPaddingTop() == setPadding ? setPadding - extended : list.getPaddingTop();
-            int margin = baseMargin - wanted;
-            int padding = basePadding + wanted;
+            int baseMarginTop = params.topMargin == setMarginTop ? params.topMargin + extendedTop : params.topMargin;
+            int baseMarginBottom = params.bottomMargin == setMarginBottom
+                    ? params.bottomMargin + extendedBottom : params.bottomMargin;
+            int basePaddingTop = list.getPaddingTop() == setPaddingTop
+                    ? setPaddingTop - extendedTop : list.getPaddingTop();
+            int basePaddingBottom = list.getPaddingBottom() == setPaddingBottom
+                    ? setPaddingBottom - extendedBottom : list.getPaddingBottom();
+            int marginTop = baseMarginTop - wantedTop;
+            int marginBottom = baseMarginBottom - wantedBottom;
+            int paddingTop = basePaddingTop + wantedTop;
+            int paddingBottom = basePaddingBottom + wantedBottom;
             boolean changed = false;
-            if (params.topMargin != margin) {
-                params.topMargin = margin;
+            if (params.topMargin != marginTop || params.bottomMargin != marginBottom) {
+                params.topMargin = marginTop;
+                params.bottomMargin = marginBottom;
                 refresh.setLayoutParams(params);
                 changed = true;
             }
-            if (list.getPaddingTop() != padding) {
-                list.setPadding(list.getPaddingLeft(), padding, list.getPaddingRight(), list.getPaddingBottom());
+            if (list.getPaddingTop() != paddingTop || list.getPaddingBottom() != paddingBottom) {
+                list.setPadding(list.getPaddingLeft(), paddingTop, list.getPaddingRight(), paddingBottom);
                 changed = true;
             }
-            setMargin = margin;
-            setPadding = padding;
-            extended = wanted;
-            if (wanted > 0) {
+            setMarginTop = marginTop;
+            setMarginBottom = marginBottom;
+            setPaddingTop = paddingTop;
+            setPaddingBottom = paddingBottom;
+            extendedTop = wantedTop;
+            extendedBottom = wantedBottom;
+            if (wantedTop > 0 || wantedBottom > 0) {
                 if (list instanceof ViewGroup) ((ViewGroup) list).setClipToPadding(false);
-                // The list now starts above its parents. Let them draw it there.
+                // The list now goes past its parents. Let them draw it there.
+                View stop = spacer != null && spacer.getParent() instanceof View
+                        ? (View) spacer.getParent() : (View) header.getParent();
                 View parent = (View) refresh.getParent();
-                View stop = (View) header.getParent();
                 while (parent instanceof ViewGroup) {
                     ((ViewGroup) parent).setClipChildren(false);
                     ((ViewGroup) parent).setClipToPadding(false);
@@ -338,11 +567,7 @@ public final class BlurBars {
                     parent = (View) parent.getParent();
                 }
             }
-            if (changed) blur.invalidateSelf();
-        }
-
-        private Context context() {
-            return header.getContext();
+            if (changed) redraw();
         }
     }
 }

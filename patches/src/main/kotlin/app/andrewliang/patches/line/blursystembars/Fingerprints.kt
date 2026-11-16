@@ -36,3 +36,24 @@ internal object EdgeToEdgeWindowFingerprint : Fingerprint(
         ),
     ),
 )
+
+/**
+ * The Compose top bar of LINE's design system for themes without a seamless header
+ * (`y82/u.b` on 26.16.0). It is a column of a status bar strip in the theme's status bar color and
+ * the bar, which paints the theme artwork stretched to its bounds. The first parameter is the
+ * default color, and the column modifier comes from `Modifier.then`.
+ */
+internal object ComposeTopBarFingerprint : Fingerprint(
+    returnType = "V",
+    custom = { method, _ ->
+        method.parameterTypes.size == 7 && method.parameterTypes[0] == "J" &&
+            method.parameterTypes[6] == "I"
+    },
+    filters = listOf(
+        methodCall(definingClass = "Lcom/linecorp/line/compose/theme/i;", name = "b"),
+        methodCall(definingClass = "Lu1/n;", name = "b"),
+        methodCall(definingClass = "Lcom/linecorp/line/compose/theme/i;", name = "e"),
+        methodCall(definingClass = "Landroidx/compose/ui/draw/a;", name = "a"),
+        methodCall(definingClass = "Lcom/linecorp/line/compose/theme/a;", name = "c"),
+    ),
+)

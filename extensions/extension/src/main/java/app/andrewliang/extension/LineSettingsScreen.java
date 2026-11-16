@@ -228,9 +228,15 @@ final class LineSettingsScreen {
                 restart.setVisibility(View.GONE);
                 restart.setOnClickListener(v -> restart(activity));
                 content.addView(toggle(activity, LineSettings.BLUR_SYSTEM_BARS, "Transparent system bars with blur",
-                        "No theme color behind the status bar and the gesture bar. In chats, messages blur "
-                                + "out behind the header.",
+                        "The theme artwork fills the status bar and the gesture bar. In chats, messages "
+                                + "blur out behind the header and the input bar.",
                         () -> restart.setVisibility(View.VISIBLE)));
+                content.addView(toggle(activity, LineSettings.BLUR_TOP_DARK_TINT, "Top blur dark tint",
+                        "Darkens the blur behind the status bar, which also hides the camera hole. Off "
+                                + "uses a light tint in light mode.", null));
+                content.addView(toggle(activity, LineSettings.BLUR_BOTTOM_DARK_TINT, "Bottom blur dark tint",
+                        "Darkens the blur behind the chat input and the gesture bar. Off uses a light tint "
+                                + "in light mode.", null));
                 content.addView(restart);
             }
         }

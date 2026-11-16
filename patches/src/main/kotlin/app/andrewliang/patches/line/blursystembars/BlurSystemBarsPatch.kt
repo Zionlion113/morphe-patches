@@ -4,11 +4,16 @@ import app.andrewliang.patches.line.shared.lineSettingsExtensionPatch
 import app.andrewliang.patches.line.shared.markLineSettingIncluded
 import app.andrewliang.patches.shared.Constants.COMPATIBILITY_LINE
 import app.morphe.patcher.extensions.InstructionExtensions.addInstruction
+import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
 import app.morphe.patcher.extensions.InstructionExtensions.replaceInstruction
 import app.morphe.patcher.patch.PatchException
 import app.morphe.patcher.patch.bytecodePatch
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.Instruction
+import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction
+import com.android.tools.smali.dexlib2.iface.reference.FieldReference
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference
 
@@ -18,8 +23,9 @@ private const val EXTENSION = "Lapp/andrewliang/extension/BlurBars;"
 val blurSystemBarsPatch = bytecodePatch(
     name = "[General] Transparent system bars with blur",
     description = "Removes the theme color blocks behind the status bar and the gesture bar on every " +
-        "screen. The bottom tabs keep their theme. In chats, the header stays on top and messages " +
-        "blur out behind it.",
+        "screen: the theme artwork fills them, and the bottom tabs keep their theme. In chats, the " +
+        "header and the input bar stay on top and messages blur out behind them. Battery Saver " +
+        "shows a dark fade instead of the blur.",
     default = true,
 ) {
     compatibleWith(COMPATIBILITY_LINE)
@@ -58,6 +64,125 @@ val blurSystemBarsPatch = bytecodePatch(
                 replaced++
             }
             if (replaced != 2) throw PatchException("Expected 2 bar color calls in the edge-to-edge helper, found $replaced")
+        }
+
+        // The Compose top bar: the status bar strip gets a clear color, and the artwork moves
+        // from the bar to the whole column, cropped instead of stretched. So the artwork fills
+        // the status bar. Each change goes through the extension, which keeps LINE's value while
+        // the switch is off. No new instruction is a branch target, so no branch moves.
+        ComposeTopBarFingerprint.method.apply {
+            val instructions = implementation!!.instructions.toList()
+            fun Instruction.methodRef() = (this as? ReferenceInstruction)?.reference as? MethodReference
+            fun Instruction.fieldRef() = (this as? ReferenceInstruction)?.reference as? FieldReference
+            fun low(register: Int): Int {
+                if (register > 15) throw PatchException("Register v$register is too high for invoke")
+                return register
+            }
+
+            // The artwork modifier: Modifier.paint(painter, contentScale = FillBounds, ...).
+            val drawIndex = instructions.indexOfFirst {
+                it.opcode == Opcode.INVOKE_STATIC_RANGE &&
+                    it.methodRef()?.definingClass == "Landroidx/compose/ui/draw/a;"
+            }
+            if (drawIndex < 0) throw PatchException("Compose paint call not found")
+            val draw = instructions[drawIndex] as RegisterRangeInstruction
+            val modifierType = draw.methodRef()!!.returnType
+            val contentScaleType = draw.methodRef()!!.parameterTypes[3].toString()
+            val scaleRegister = draw.startRegister + 3
+            val artworkRegister = (instructions[drawIndex + 1] as OneRegisterInstruction).registerA
+
+            val scaleIndex = (drawIndex - 1 downTo 0).first {
+                val instruction = instructions[it]
+                instruction.opcode == Opcode.SGET_OBJECT &&
+                    (instruction as OneRegisterInstruction).registerA == scaleRegister
+            }
+            val scaleField = instructions[scaleIndex].fieldRef()!!
+            // The next instruction sets the alpha register, so it is free until then.
+            val afterScale = instructions[scaleIndex + 1]
+            if (afterScale !is OneRegisterInstruction || afterScale.registerA != scaleRegister + 1 ||
+                !afterScale.opcode.name.startsWith("const")
+            ) {
+                throw PatchException("Unexpected instruction after the content scale")
+            }
+            // ContentScale.Crop is the first field of the ContentScale companion.
+            val crop = classDefBy(scaleField.definingClass).staticFields.first()
+            if (crop.type == scaleField.type) throw PatchException("ContentScale.Crop not found")
+
+            // The status bar strip: Modifier.background(color, RectangleShape).
+            val colorIndex = instructions.indexOfFirst {
+                it.opcode == Opcode.INVOKE_STATIC && it.methodRef()?.definingClass == "Lu1/n;" &&
+                    it.methodRef()?.name == "b"
+            }
+            val colorCall = instructions[colorIndex] as FiveRegisterInstruction
+
+            // The column modifier: modifier.then(Modifier).
+            val thenIndex = (drawIndex + 1 until instructions.size).first {
+                it.let { i -> instructions[i] }.let { instruction ->
+                    instruction.opcode == Opcode.INVOKE_INTERFACE &&
+                        instruction.methodRef()?.definingClass == modifierType &&
+                        instruction.methodRef()?.parameterTypes?.size == 1
+                }
+            }
+            val then = instructions[thenIndex] as FiveRegisterInstruction
+            val thenResult = (instructions[thenIndex + 1] as OneRegisterInstruction).registerA
+
+            // The bar modifier: the artwork modifier with the window insets padding.
+            val padIndex = (thenIndex + 1 until instructions.size).first {
+                val instruction = instructions[it]
+                val reference = instruction.methodRef()
+                instruction.opcode == Opcode.INVOKE_STATIC && reference != null &&
+                    reference.returnType == modifierType && reference.parameterTypes.size == 2 &&
+                    reference.parameterTypes[0] == modifierType &&
+                    (instruction as FiveRegisterInstruction).registerC == artworkRegister
+            }
+            // The insets object is built just before it. Its int argument register is free after.
+            val insets = instructions[padIndex - 1] as FiveRegisterInstruction
+            if (insets.opcode != Opcode.INVOKE_DIRECT || insets.registerCount != 3) {
+                throw PatchException("Unexpected instruction before the bar padding")
+            }
+            val freeRegister = insets.registerE
+            val empty = instructions.first {
+                it.opcode == Opcode.SGET_OBJECT && it.fieldRef()?.definingClass == modifierType.removeSuffix(";") + "\$a;"
+            }.fieldRef()!!
+
+            // From the last change to the first, so the found indexes stay right.
+            addInstructions(
+                padIndex,
+                """
+                    sget-object v$freeRegister, $empty
+                    invoke-static { v${low(artworkRegister)}, v${low(freeRegister)} }, $EXTENSION->composeInnerModifier(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+                    move-result-object v$artworkRegister
+                    check-cast v$artworkRegister, $modifierType
+                """,
+            )
+            replaceInstruction(
+                thenIndex,
+                "invoke-interface { v${low(then.registerC)}, v${low(thenResult)} }, ${then.methodRef()}",
+            )
+            addInstructions(
+                thenIndex,
+                """
+                    invoke-static { v${low(artworkRegister)}, v${low(then.registerD)} }, $EXTENSION->composeOuterModifier(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+                    move-result-object v$thenResult
+                    check-cast v$thenResult, $modifierType
+                """,
+            )
+            addInstructions(
+                scaleIndex + 1,
+                """
+                    sget-object v${scaleRegister + 1}, ${crop.definingClass}->${crop.name}:${crop.type}
+                    invoke-static/range { v$scaleRegister .. v${scaleRegister + 1} }, $EXTENSION->composeArtworkScale(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+                    move-result-object v$scaleRegister
+                    check-cast v$scaleRegister, $contentScaleType
+                """,
+            )
+            addInstructions(
+                colorIndex,
+                """
+                    invoke-static { v${low(colorCall.registerD)}, v${low(colorCall.registerE)} }, $EXTENSION->composeStatusBarColor(J)J
+                    move-result-wide v${colorCall.registerD}
+                """,
+            )
         }
 
         markLineSettingIncluded("blurSystemBars")
