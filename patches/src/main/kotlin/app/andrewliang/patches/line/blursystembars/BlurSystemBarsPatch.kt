@@ -192,15 +192,26 @@ val blurSystemBarsPatch = bytecodePatch(
         // bounds are set, the extension crops the image to the full view. The layout method
         // that would push official themes down by the status bar height is skipped, and captures
         // of the background use the full view size.
+        //
+        // super.onDraw is the target of a goto from the setImageDrawable path. Replacing that
+        // instruction keeps the label on the hook, so both paths run it. Inserting in front
+        // of it would leave the label on super.onDraw, and the image path would skip the fix.
         val superDraw = ChatHistorySkinOnDrawFingerprint.method.implementation!!.instructions.indexOfLast {
             it.opcode == Opcode.INVOKE_SUPER &&
                 (it as? ReferenceInstruction)?.reference is MethodReference &&
                 (it.reference as MethodReference).name == "onDraw"
         }
         if (superDraw < 0) throw PatchException("super.onDraw not found in ChatHistorySkinImageView")
-        ChatHistorySkinOnDrawFingerprint.method.addInstruction(
+        val superRef = (ChatHistorySkinOnDrawFingerprint.method.implementation!!.instructions[superDraw]
+            as ReferenceInstruction).reference as MethodReference
+        ChatHistorySkinOnDrawFingerprint.method.replaceInstruction(
             superDraw,
             "invoke-static { p0 }, $EXTENSION->layoutChatSkin(Landroid/widget/ImageView;)V",
+        )
+        ChatHistorySkinOnDrawFingerprint.method.addInstruction(
+            superDraw + 1,
+            "invoke-super { p0, p1 }, ${superRef.definingClass}->${superRef.name}(" +
+                superRef.parameterTypes.joinToString("") + ")${superRef.returnType}",
         )
         ChatHistorySkinAreaFingerprint.method.addInstructions(
             0,

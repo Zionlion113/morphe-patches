@@ -3,8 +3,11 @@ package app.andrewliang.extension;
 import android.app.Activity;
 import android.app.Application;
 import android.content.Context;
+import android.content.ContextWrapper;
+import android.graphics.Color;
 import android.graphics.Outline;
 import android.graphics.Rect;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.NinePatchDrawable;
 import android.os.Build;
@@ -221,17 +224,60 @@ public final class BlurBars {
     }
 
     /**
-     * Clears padding and margins on a chat background view so it can fill the window. Returns true
-     * while the switch is on, so the patch can skip LINE's own top margin of the status bar height.
+     * Makes the chat background and its parents fill the window, and clears a solid color on the
+     * window so it cannot show through under the input bar. Returns true while the switch is on,
+     * so the patch can skip LINE's own top margin of the status bar height.
      */
     public static boolean prepareChatSkin(View view) {
         if (!enabled() || view == null) return false;
-        if (view.getFitsSystemWindows()) view.setFitsSystemWindows(false);
-        if (view.getPaddingLeft() != 0 || view.getPaddingTop() != 0
-                || view.getPaddingRight() != 0 || view.getPaddingBottom() != 0) {
-            view.setPadding(0, 0, 0, 0);
+        clearWindowBackground(view);
+        View root = view.getRootView();
+        View current = view;
+        while (current != null) {
+            // The decor view's padding is left alone: the IME uses it when the window resizes.
+            if (current != root) fillWindow(current);
+            unclip(current);
+            ViewParent parent = current.getParent();
+            if (!(parent instanceof View) || current == root) break;
+            current = (View) parent;
         }
+        return true;
+    }
+
+    private static boolean needsPrepare(View view) {
+        if (view.getFitsSystemWindows()) return true;
+        if (hasPadding(view) && !imePadding(view)) return true;
         ViewGroup.LayoutParams params = view.getLayoutParams();
+        if (params instanceof ViewGroup.MarginLayoutParams) {
+            ViewGroup.MarginLayoutParams margin = (ViewGroup.MarginLayoutParams) params;
+            if (margin.topMargin != 0 || margin.bottomMargin != 0
+                    || margin.leftMargin != 0 || margin.rightMargin != 0) {
+                return true;
+            }
+        }
+        if (params != null && (params.width != ViewGroup.LayoutParams.MATCH_PARENT
+                || params.height != ViewGroup.LayoutParams.MATCH_PARENT)) {
+            return true;
+        }
+        return false;
+    }
+
+    /** Lets [view] fill its parent, with no inset padding or margin. */
+    private static void fillWindow(View view) {
+        if (view.getFitsSystemWindows()) view.setFitsSystemWindows(false);
+        // Do not clear IME padding: the chat window uses adjustResize.
+        if (hasPadding(view) && !imePadding(view)) view.setPadding(0, 0, 0, 0);
+        ViewGroup.LayoutParams params = view.getLayoutParams();
+        if (params == null) return;
+        boolean changed = false;
+        if (params.width != ViewGroup.LayoutParams.MATCH_PARENT) {
+            params.width = ViewGroup.LayoutParams.MATCH_PARENT;
+            changed = true;
+        }
+        if (params.height != ViewGroup.LayoutParams.MATCH_PARENT) {
+            params.height = ViewGroup.LayoutParams.MATCH_PARENT;
+            changed = true;
+        }
         if (params instanceof ViewGroup.MarginLayoutParams) {
             ViewGroup.MarginLayoutParams margin = (ViewGroup.MarginLayoutParams) params;
             if (margin.topMargin != 0 || margin.bottomMargin != 0
@@ -240,25 +286,70 @@ public final class BlurBars {
                 margin.bottomMargin = 0;
                 margin.leftMargin = 0;
                 margin.rightMargin = 0;
-                view.setLayoutParams(margin);
+                changed = true;
             }
         }
-        return true;
+        if (changed) view.setLayoutParams(params);
     }
 
-    private static boolean needsPrepare(View view) {
-        if (view.getFitsSystemWindows()) return true;
-        if (view.getPaddingLeft() != 0 || view.getPaddingTop() != 0
-                || view.getPaddingRight() != 0 || view.getPaddingBottom() != 0) {
-            return true;
+    static void unclip(View view) {
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            if (group.getClipChildren()) group.setClipChildren(false);
+            if (group.getClipToPadding()) group.setClipToPadding(false);
         }
-        ViewGroup.LayoutParams params = view.getLayoutParams();
-        if (params instanceof ViewGroup.MarginLayoutParams) {
-            ViewGroup.MarginLayoutParams margin = (ViewGroup.MarginLayoutParams) params;
-            return margin.topMargin != 0 || margin.bottomMargin != 0
-                    || margin.leftMargin != 0 || margin.rightMargin != 0;
+        if (view.getClipToOutline()) view.setClipToOutline(false);
+    }
+
+    private static boolean hasPadding(View view) {
+        return view.getPaddingLeft() != 0 || view.getPaddingTop() != 0
+                || view.getPaddingRight() != 0 || view.getPaddingBottom() != 0;
+    }
+
+    private static boolean imePadding(View view) {
+        if (view.getPaddingBottom() == 0 || Build.VERSION.SDK_INT < 30) return false;
+        android.view.WindowInsets insets = view.getRootWindowInsets();
+        if (insets == null || !insets.isVisible(android.view.WindowInsets.Type.ime())) return false;
+        return view.getPaddingBottom() >= insets.getInsets(android.view.WindowInsets.Type.ime()).bottom / 2;
+    }
+
+    /**
+     * The chat activity's window is already transparent, so whatever is behind the chat (often
+     * the dark chat list) shows in any gap under the input bar. Clear a solid background on the
+     * window, the decor view, the content view and the chat root, so only the skin can fill them.
+     */
+    private static void clearWindowBackground(View view) {
+        Activity activity = activityOf(view.getContext());
+        if (activity == null) return;
+        Window window = activity.getWindow();
+        if (window == null) return;
+        makeTransparent(window.peekDecorView());
+        View content = window.findViewById(android.R.id.content);
+        if (content != null) makeTransparent(content);
+        Drawable background = window.getDecorView().getBackground();
+        if (!isTransparent(background)) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         }
-        return false;
+        makeTransparent(view);
+        if (view.getParent() instanceof View) makeTransparent((View) view.getParent());
+    }
+
+    private static void makeTransparent(View view) {
+        if (view == null) return;
+        if (!isTransparent(view.getBackground())) view.setBackground(new ColorDrawable(Color.TRANSPARENT));
+    }
+
+    private static boolean isTransparent(Drawable drawable) {
+        if (drawable == null) return true;
+        return drawable instanceof ColorDrawable && ((ColorDrawable) drawable).getColor() == Color.TRANSPARENT;
+    }
+
+    private static Activity activityOf(Context context) {
+        while (context instanceof ContextWrapper) {
+            if (context instanceof Activity) return (Activity) context;
+            context = ((ContextWrapper) context).getBaseContext();
+        }
+        return null;
     }
 
     /**
@@ -566,6 +657,10 @@ public final class BlurBars {
         }
 
         void onPreDraw() {
+            if (skin != null) prepareChatSkin(skin);
+            if (header != null) unclipAncestors(header);
+            if (input != null) unclipAncestors(input);
+            if (spacer != null) unclipAncestors(spacer);
             applyBackgrounds();
             boolean skinDirty = skin != null && skin.isDirty();
             if (skinDirty || content.isDirty()) top.invalidate();
@@ -664,6 +759,17 @@ public final class BlurBars {
                 }
             }
             if (changed) redraw();
+        }
+    }
+
+    /** Lets a bar draw its saver fade a little past its own bounds, into the messages. */
+    private static void unclipAncestors(View view) {
+        View current = view;
+        View root = view.getRootView();
+        while (current != null) {
+            unclip(current);
+            if (current == root || !(current.getParent() instanceof View)) break;
+            current = (View) current.getParent();
         }
     }
 

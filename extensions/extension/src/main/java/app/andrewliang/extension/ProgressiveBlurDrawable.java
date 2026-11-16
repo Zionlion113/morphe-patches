@@ -50,6 +50,10 @@ final class ProgressiveBlurDrawable extends Drawable {
     /** Dark tint opacity at the edge, with and without the blur. */
     private static final int DARK_ALPHA_BLUR = 0x99;
     private static final int DARK_ALPHA_PLAIN = 0xB3;
+    /** Battery Saver scrim at the edge: dark enough that the title and status icons stay readable. */
+    private static final int SAVER_ALPHA = 0xF0;
+    /** After the bar stays fully dark, the saver scrim fades out over this distance. */
+    private static final float SAVER_FADE_DP = 28f;
 
     /** True while a region records its content. Pieces draw nothing then. */
     private static boolean recording;
@@ -107,10 +111,16 @@ final class ProgressiveBlurDrawable extends Drawable {
         // A piece outside the region, such as the gesture bar strip under an open keyboard,
         // draws nothing, so the content is not recorded for it.
         if (hostLocation[1] + bounds.top >= union.bottom || hostLocation[1] + bounds.bottom <= union.top) return;
+        int fade = BlurBars.powerSave() ? BlurBars.dp(host.getContext(), SAVER_FADE_DP) : 0;
         int save = canvas.save();
-        canvas.clipRect(bounds);
+        // In Battery Saver the fade continues a little past the bar, into the messages.
+        if (region.bottom) {
+            canvas.clipRect(bounds.left, bounds.top - fade, bounds.right, bounds.bottom);
+        } else {
+            canvas.clipRect(bounds.left, bounds.top, bounds.right, bounds.bottom + fade);
+        }
         canvas.translate(union.left - hostLocation[0], union.top - hostLocation[1]);
-        region.draw(canvas, union.width(), union.height());
+        region.draw(canvas, union.width(), union.height(), fade);
         canvas.restoreToCount(save);
     }
 
@@ -178,18 +188,22 @@ final class ProgressiveBlurDrawable extends Drawable {
             return union;
         }
 
-        void draw(Canvas canvas, int width, int height) {
+        void draw(Canvas canvas, int width, int height, int fade) {
             boolean saver = BlurBars.powerSave();
             boolean blurred = false;
             if (!saver && Build.VERSION.SDK_INT >= 31 && canvas.isHardwareAccelerated()) {
                 if (gpu == null) gpu = new Gpu();
                 blurred = ((Gpu) gpu).draw(this, canvas, width, height);
             }
-            drawTint(canvas, width, height, blurred, saver);
+            drawTint(canvas, width, height, fade, blurred, saver);
         }
 
-        private void drawTint(Canvas canvas, int width, int height, boolean blurred, boolean saver) {
-            boolean dark = saver || (bottom ? LineSettings.blurBottomDarkTint() : LineSettings.blurTopDarkTint());
+        private void drawTint(Canvas canvas, int width, int height, int fade, boolean blurred, boolean saver) {
+            if (saver) {
+                drawSaverTint(canvas, width, height, fade);
+                return;
+            }
+            boolean dark = bottom ? LineSettings.blurBottomDarkTint() : LineSettings.blurTopDarkTint();
             int rgb;
             int alpha;
             if (dark) {
@@ -214,6 +228,36 @@ final class ProgressiveBlurDrawable extends Drawable {
                         new float[] {0f, FULL_PART, 1f}, Shader.TileMode.CLAMP));
             }
             canvas.drawRect(0, 0, width, height, tint);
+        }
+
+        /**
+         * A dark scrim that stays solid over the whole bar (status bar and title, or input bar
+         * and gesture bar), then fades out over [fade] pixels into the messages.
+         */
+        private void drawSaverTint(Canvas canvas, int width, int height, int fade) {
+            int extended = height + Math.max(fade, 0);
+            int key = (SAVER_ALPHA << 24) | fade;
+            if (height != tintHeight || key != tintKey) {
+                tintHeight = height;
+                tintKey = key;
+                int edge = SAVER_ALPHA << 24;
+                int clear = 0;
+                float fullUntil = extended <= 0 ? 1f : height / (float) extended;
+                if (bottom) {
+                    tint.setShader(new LinearGradient(0, height, 0, -Math.max(fade, 0),
+                            new int[] {edge, edge, clear},
+                            new float[] {0f, fullUntil, 1f}, Shader.TileMode.CLAMP));
+                } else {
+                    tint.setShader(new LinearGradient(0, 0, 0, extended,
+                            new int[] {edge, edge, clear},
+                            new float[] {0f, fullUntil, 1f}, Shader.TileMode.CLAMP));
+                }
+            }
+            if (bottom) {
+                canvas.drawRect(0, -Math.max(fade, 0), width, height, tint);
+            } else {
+                canvas.drawRect(0, 0, width, extended, tint);
+            }
         }
     }
 
