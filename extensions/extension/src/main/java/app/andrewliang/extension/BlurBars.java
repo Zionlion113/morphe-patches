@@ -2,13 +2,18 @@ package app.andrewliang.extension;
 
 import android.app.Activity;
 import android.app.Application;
+import android.content.ComponentCallbacks;
 import android.content.Context;
 import android.content.ContextWrapper;
+import android.content.res.ColorStateList;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Outline;
+import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.NinePatchDrawable;
 import android.os.Build;
@@ -22,6 +27,7 @@ import android.view.ViewTreeObserver;
 import android.view.Window;
 import android.view.WindowInsetsController;
 import android.widget.ImageView;
+import android.widget.TextView;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -49,7 +55,7 @@ import java.util.WeakHashMap;
  * </ul>
  * The top bars of Compose screens are changed by the patch itself.
  *
- * <p>In Battery Saver, the blur turns into a plain dark scrim. This changes at once, with no restart.
+ * <p>The chat header and the input bar follow a four-state frost (system dark mode crossed with Battery Saver). That look, and the icon colors that go with it, change at once, with no restart.
  *
  * <p>All views are found by resource name, because the ids change between LINE versions. A view
  * that this LINE version does not have is skipped.
@@ -87,8 +93,32 @@ public final class BlurBars {
     private static final String CHAT_INPUT_PILL = "chat_ui_message_container";
     private static final String CHAT_INPUT_PILL_BG = "chat_ui_message_edit_text_background";
 
-    /** Corner radius of the official input 9-patch, which is half of its 38 dp height. */
-    private static final float INPUT_PILL_RADIUS_DP = 19f;
+    /** Fill of the input capsule, as measured from the mockups, in every theme. */
+    private static final int INPUT_PILL_FILL = 0xFFF5F5F5;
+    private static final int ICON_DAY = 0xFF111111;
+    private static final int ICON_EMOJI_DAY = 0xFF7B7B7B;
+    private static final int ICON_NIGHT = 0xFFFFFFFF;
+    private static final int HEADER_ICON_DAY_SAVER = 0xFF000000;
+    private static final int HEADER_ICON_LIGHT = 0xFFFEFEFE;
+
+    private static final String[] INPUT_DARK_ICONS = {
+            "chathistory_attach_button",
+            "chat_ui_camera_button",
+            "chat_ui_gallery_button",
+    };
+    private static final String[] INPUT_EMOJI_ICONS = {
+            "chat_ui_esk_button",
+            "chat_ui_text_keyboard_button",
+    };
+    private static final String INPUT_MIC = "chat_ui_send_button_image";
+    private static final String[] HEADER_TEXT = {
+            "header_title",
+            "header_title_count",
+    };
+    private static final String[] HEADER_ICONS = {
+            "header_up_button",
+    };
+    private static final String HEADER_AVATAR = "header_title_left_image";
 
     /** A list that starts lower than this below the header has a banner above it. */
     private static final int BANNER_GAP_DP = 4;
@@ -121,6 +151,7 @@ public final class BlurBars {
         if (registered || application == null) return;
         registered = true;
         watchPowerSave(application);
+        watchConfiguration(application);
         application.registerActivityLifecycleCallbacks(new Application.ActivityLifecycleCallbacks() {
             @Override
             public void onActivityCreated(Activity activity, Bundle state) {
@@ -401,6 +432,27 @@ public final class BlurBars {
         return PowerSave.isOn();
     }
 
+    /** System dark mode, used live (no restart) for the four-state chat frost. */
+    static boolean night(View view) {
+        if (view == null) return false;
+        return (view.getResources().getConfiguration().uiMode
+                & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    private static void watchConfiguration(Application application) {
+        application.registerComponentCallbacks(new ComponentCallbacks() {
+            @Override
+            public void onConfigurationChanged(Configuration configuration) {
+                for (ChatScreen chat : new ArrayList<>(CHATS.values())) {
+                    if (chat != null) chat.redraw();
+                }
+            }
+
+            @Override
+            public void onLowMemory() {}
+        });
+    }
+
     private static void watchPowerSave(Application application) {
         PowerSave.init(application);
         PowerSave.addListener(() -> {
@@ -618,13 +670,16 @@ public final class BlurBars {
         final ProgressiveBlurDrawable.Region top;
         final ProgressiveBlurDrawable.Region bottom;
         final ProgressiveBlurDrawable headerBlur;
-        Drawable headerScrim;
+        final ProgressiveBlurDrawable topFade;
         final ProgressiveBlurDrawable inputBlur;
         final ProgressiveBlurDrawable spacerBlur;
 
         /** How far the list was moved up, and down. */
         int extendedTop;
         int extendedBottom;
+        /** Padding added so scroll-to-bottom lands above the input, not only the extension. */
+        int paddedTop;
+        int paddedBottom;
         /** The list padding and refresh layout margins that this class set, to see LINE's own. */
         int setPaddingTop = -1;
         int setPaddingBottom = -1;
@@ -646,6 +701,7 @@ public final class BlurBars {
             bottom = new ProgressiveBlurDrawable.Region(true, new View[] {input, spacer},
                     new View[] {skin, refresh});
             headerBlur = new ProgressiveBlurDrawable(header, top);
+            topFade = new ProgressiveBlurDrawable(content, top, true);
             inputBlur = input == null ? null : new ProgressiveBlurDrawable(input, bottom);
             spacerBlur = spacer == null ? null : new ProgressiveBlurDrawable(spacer, bottom);
         }
@@ -667,24 +723,34 @@ public final class BlurBars {
         }
 
         private void applyBackgrounds() {
-            if (ChatHeaderPills.enabled()) {
-                if (headerScrim == null) headerScrim = ChatHeaderPills.newScrim();
-                if (header.getBackground() != headerScrim) header.setBackground(headerScrim);
-            } else if (header.getBackground() != headerBlur) {
-                header.setBackground(headerBlur);
-            }
-            ChatHeaderPills.apply(header, new View[] {skin, content});
+            if (header.getBackground() != headerBlur) header.setBackground(headerBlur);
+            layoutTopFade();
             if (input != null) {
                 if (input.getBackground() != inputBlur) input.setBackground(inputBlur);
                 // The row of the input box. The box and the buttons in it stay.
                 View row = find(input, CHAT_INPUT_ROW);
                 if (row != null && row.getBackground() != null) row.setBackground(null);
                 smoothInputPill(input);
+                tintInputIcons(input);
             }
             if (spacer != null) {
                 if (spacer.getVisibility() == View.INVISIBLE) spacer.setVisibility(View.VISIBLE);
                 if (spacer.getBackground() != spacerBlur) spacer.setBackground(spacerBlur);
             }
+            tintHeader(header);
+            ChatPanels.apply(decor, skin, content);
+        }
+
+        /** The part of the 145 dp top frost that continues into the messages, below the header. */
+        private void layoutTopFade() {
+            int fade = Math.max(0, dp(header.getContext(), ProgressiveBlurDrawable.TOP_FADE_DP) - header.getHeight());
+            if (fade <= 0 || content.getWidth() <= 0) {
+                content.getOverlay().remove(topFade);
+                return;
+            }
+            topFade.setBounds(0, 0, content.getWidth(), fade);
+            // ViewOverlay.add is a no-op when the drawable is already there.
+            content.getOverlay().add(topFade);
         }
 
         void onPreDraw() {
@@ -693,29 +759,34 @@ public final class BlurBars {
             if (input != null) unclipAncestors(input);
             if (spacer != null) unclipAncestors(spacer);
             applyBackgrounds();
+            extendList();
             boolean skinDirty = skin != null && skin.isDirty();
             if (skinDirty || content.isDirty()) top.invalidate();
             if (skinDirty || (refresh != null && refresh.isDirty())) bottom.invalidate();
             lightIcons();
         }
 
-        /** White system bar icons over a dark tint. */
+        /**
+         * Dark status and navigation icons only in day + Battery Saver (white frost, dark handle).
+         * The other three states use a dark dim, so the icons and the gesture handle stay light.
+         */
         private void lightIcons() {
-            boolean saver = powerSave();
-            boolean status = saver || LineSettings.blurTopDarkTint() || ChatHeaderPills.enabled();
-            boolean navigation = saver || LineSettings.blurBottomDarkTint();
-            if (!status && !navigation) return;
+            boolean light = !night(header) && powerSave();
             if (Build.VERSION.SDK_INT >= 30) {
                 WindowInsetsController controller = decor.getWindowInsetsController();
                 if (controller == null) return;
-                int mask = (status ? WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS : 0)
-                        | (navigation ? WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS : 0);
-                if ((controller.getSystemBarsAppearance() & mask) != 0) controller.setSystemBarsAppearance(0, mask);
+                int mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                        | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                int value = light ? mask : 0;
+                if ((controller.getSystemBarsAppearance() & mask) != value) {
+                    controller.setSystemBarsAppearance(value, mask);
+                }
             } else {
                 int flags = decor.getSystemUiVisibility();
-                int mask = (status ? View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR : 0)
-                        | (navigation && Build.VERSION.SDK_INT >= 26 ? View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR : 0);
-                if ((flags & mask) != 0) decor.setSystemUiVisibility(flags & ~mask);
+                int mask = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                        | (Build.VERSION.SDK_INT >= 26 ? View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR : 0);
+                int next = light ? (flags | mask) : (flags & ~mask);
+                if (next != flags) decor.setSystemUiVisibility(next);
             }
         }
 
@@ -743,22 +814,31 @@ public final class BlurBars {
             } else {
                 wantedTop = listTop - headerTop;
             }
-            // Down to the bottom of the gesture bar strip, or of the input bar.
-            int barsBottom = bottom.union().bottom;
-            int wantedBottom = barsBottom > listBottom ? barsBottom - listBottom : 0;
+            // Extend the list behind the input, an open sticker/emoji/"+" panel or IME
+            // placeholder, and the gesture bar, so messages and the wallpaper can still
+            // scroll there. Padding, not the margin, is what LINE's scroll-to-bottom uses.
+            int coverBottom = ChatPanels.coverBottom(input, spacer, decor);
+            int wantedBottom = coverBottom > listBottom ? coverBottom - listBottom : 0;
 
             ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) refresh.getLayoutParams();
             int baseMarginTop = params.topMargin == setMarginTop ? params.topMargin + extendedTop : params.topMargin;
             int baseMarginBottom = params.bottomMargin == setMarginBottom
                     ? params.bottomMargin + extendedBottom : params.bottomMargin;
             int basePaddingTop = list.getPaddingTop() == setPaddingTop
-                    ? setPaddingTop - extendedTop : list.getPaddingTop();
+                    ? setPaddingTop - paddedTop : list.getPaddingTop();
             int basePaddingBottom = list.getPaddingBottom() == setPaddingBottom
-                    ? setPaddingBottom - extendedBottom : list.getPaddingBottom();
+                    ? setPaddingBottom - paddedBottom : list.getPaddingBottom();
             int marginTop = baseMarginTop - wantedTop;
             int marginBottom = baseMarginBottom - wantedBottom;
+            // After the list is extended, padding is the overlap with the header and with
+            // everything from the input top down (input bar + IME/panel + gesture bar).
+            // clipToPadding stays false, so messages still draw under those bars as they scroll.
             int paddingTop = basePaddingTop + wantedTop;
-            int paddingBottom = basePaddingBottom + wantedBottom;
+            int chromeTop = ChatPanels.chromeTop(input, decor);
+            int listBottomAfter = listBottom + wantedBottom;
+            int overlapBottom = chromeTop > 0 && listBottomAfter > chromeTop
+                    ? listBottomAfter - chromeTop : wantedBottom;
+            int paddingBottom = basePaddingBottom + overlapBottom;
             boolean changed = false;
             if (params.topMargin != marginTop || params.bottomMargin != marginBottom) {
                 params.topMargin = marginTop;
@@ -776,7 +856,9 @@ public final class BlurBars {
             setPaddingBottom = paddingBottom;
             extendedTop = wantedTop;
             extendedBottom = wantedBottom;
-            if (wantedTop > 0 || wantedBottom > 0) {
+            paddedTop = wantedTop;
+            paddedBottom = overlapBottom;
+            if (wantedTop > 0 || wantedBottom > 0 || overlapBottom > 0) {
                 if (list instanceof ViewGroup) ((ViewGroup) list).setClipToPadding(false);
                 // The list now goes past its parents. Let them draw it there.
                 View stop = spacer != null && spacer.getParent() instanceof View
@@ -805,14 +887,17 @@ public final class BlurBars {
     }
 
     /**
-     * Clips the rounded input box with a GPU outline of the official corner radius, so the 9-patch
-     * edges, which are only in xhdpi, are not jagged against the blur behind them.
+     * Clips the input box to a stadium (radius = height / 2, updated on layout) and paints the
+     * measured #F5F5F5 fill with no border.
      */
     private static void smoothInputPill(View input) {
         View container = find(input, CHAT_INPUT_PILL);
         View background = find(input, CHAT_INPUT_PILL_BG);
         if (container != null) roundClip(container);
-        if (background != null) roundClip(background);
+        if (background != null) {
+            roundClip(background);
+            fillPill(background);
+        }
     }
 
     private static void roundClip(View view) {
@@ -820,6 +905,100 @@ public final class BlurBars {
             view.setOutlineProvider(new PillOutline());
         }
         if (!view.getClipToOutline()) view.setClipToOutline(true);
+    }
+
+    private static void fillPill(View view) {
+        // Hide LINE's 9-patch stroke if this is the overwrapping image view.
+        try {
+            view.getClass().getMethod("setOverwrappingDrawable", Drawable.class)
+                    .invoke(view, new Object[] {null});
+        } catch (Throwable ignored) {}
+        if (view instanceof ImageView) {
+            ImageView image = (ImageView) view;
+            ColorStateList tint = ColorStateList.valueOf(INPUT_PILL_FILL);
+            if (image.getImageTintList() == null || image.getImageTintList().getDefaultColor() != INPUT_PILL_FILL) {
+                image.setImageTintList(tint);
+                image.setImageTintMode(PorterDuff.Mode.SRC_IN);
+            }
+        }
+        Drawable background = view.getBackground();
+        if (background instanceof GradientDrawable) {
+            ((GradientDrawable) background).setColor(INPUT_PILL_FILL);
+        }
+    }
+
+    private static void tintInputIcons(View input) {
+        boolean night = night(input);
+        int dark = night ? ICON_NIGHT : ICON_DAY;
+        int emoji = night ? ICON_NIGHT : ICON_EMOJI_DAY;
+        for (String name : INPUT_DARK_ICONS) tintImage(find(input, name), dark);
+        for (String name : INPUT_EMOJI_ICONS) tintImage(find(input, name), emoji);
+        // The send button shares this ImageView with the mic. Tint a monochrome mic glyph, but
+        // leave the green circle and the coloured send arrow alone.
+        tintMic(find(input, INPUT_MIC), dark);
+    }
+
+    private static void tintMic(View view, int color) {
+        if (!(view instanceof ImageView)) return;
+        ImageView image = (ImageView) view;
+        Drawable drawable = image.getDrawable();
+        if (drawable == null || hasGreenCircle(drawable)) {
+            // The green disc is in the src, or there is no glyph yet: do not tint the view.
+            if (image.getImageTintList() != null) image.setImageTintList(null);
+            if (image.getColorFilter() != null) image.clearColorFilter();
+            return;
+        }
+        // A background disc is left as it is; only the src glyph is tinted.
+        tintImage(image, color);
+    }
+
+    /** True when the drawable (or one of its layers) has a green fill, like the mic disc. */
+    private static boolean hasGreenCircle(Drawable drawable) {
+        if (drawable instanceof LayerDrawable) {
+            LayerDrawable layer = (LayerDrawable) drawable;
+            for (int i = 0; i < layer.getNumberOfLayers(); i++) {
+                if (hasGreenCircle(layer.getDrawable(i))) return true;
+            }
+            return false;
+        }
+        if (drawable instanceof ColorDrawable) {
+            int color = ((ColorDrawable) drawable).getColor();
+            int r = Color.red(color), g = Color.green(color), b = Color.blue(color);
+            return g > r + 20 && g > b + 20 && g > 80;
+        }
+        return false;
+    }
+
+    private static void tintHeader(View header) {
+        boolean light = night(header) || !powerSave();
+        int color = light ? HEADER_ICON_LIGHT : HEADER_ICON_DAY_SAVER;
+        for (String name : HEADER_TEXT) {
+            View view = find(header, name);
+            if (view instanceof TextView) ((TextView) view).setTextColor(color);
+        }
+        for (String name : HEADER_ICONS) tintImage(find(header, name), color);
+        // Action buttons on the right of the title. Skip the avatar.
+        tintHeaderImages(header, color, id(header.getContext(), HEADER_AVATAR));
+    }
+
+    private static void tintHeaderImages(View view, int color, int skipId) {
+        if (view == null) return;
+        if (skipId != 0 && view.getId() == skipId) return;
+        if (view instanceof ImageView) tintImage(view, color);
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                tintHeaderImages(group.getChildAt(i), color, skipId);
+            }
+        }
+    }
+
+    private static void tintImage(View view, int color) {
+        if (!(view instanceof ImageView)) return;
+        ImageView image = (ImageView) view;
+        ColorStateList tint = ColorStateList.valueOf(color);
+        image.setImageTintList(tint);
+        image.setColorFilter(color, PorterDuff.Mode.SRC_IN);
     }
 
     private static final class PillOutline extends ViewOutlineProvider {
@@ -831,7 +1010,7 @@ public final class BlurBars {
                 outline.setEmpty();
                 return;
             }
-            float radius = Math.min(dp(view.getContext(), INPUT_PILL_RADIUS_DP), Math.min(width, height) / 2f);
+            float radius = Math.min(width, height) / 2f;
             outline.setRoundRect(0, 0, width, height, radius);
         }
     }

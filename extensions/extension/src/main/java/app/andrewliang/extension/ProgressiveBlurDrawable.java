@@ -1,6 +1,5 @@
 package app.andrewliang.extension;
 
-import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
@@ -40,20 +39,31 @@ import android.view.View;
  */
 final class ProgressiveBlurDrawable extends Drawable {
 
-    /** Blur radius at the screen edge. */
+    /** Blur radius at the screen edge, as used in performance mode. */
     private static final float MAX_RADIUS_DP = 22f;
     /** The blur is full over this part of the region from the edge, then falls to zero. */
     private static final float FULL_PART = 0.45f;
-    /** Light tint opacity at the edge, with and without the blur. */
-    private static final int LIGHT_ALPHA_BLUR = 0x73;
-    private static final int LIGHT_ALPHA_PLAIN = 0xD9;
-    /** Dark tint opacity at the edge, with and without the blur. */
-    private static final int DARK_ALPHA_BLUR = 0x99;
-    private static final int DARK_ALPHA_PLAIN = 0xB3;
-    /** Battery Saver scrim at the edge: dark enough that the title and status icons stay readable. */
-    private static final int SAVER_ALPHA = 0xF0;
-    /** After the bar stays fully dark, the saver scrim fades out over this distance. */
-    private static final float SAVER_FADE_DP = 28f;
+    /**
+     * Distance from the top of the header (status bar included) at which the top frost is
+     * fully gone, as measured from the mockups.
+     */
+    static final float TOP_FADE_DP = 145f;
+    /** Day saver: a nearly opaque white frost at the status edge. */
+    private static final int TOP_DAY_SAVER = 0xF8;
+    /** Day performance: a moderate black dim, never fully opaque. */
+    private static final int TOP_DAY_PERF = 0x60;
+    /** Night saver: a heavy black frost, short of a solid 0xF0 bar. */
+    private static final int TOP_NIGHT_SAVER = 0xC8;
+    /** Night performance: a slightly lighter black dim than night saver. */
+    private static final int TOP_NIGHT_PERF = 0x98;
+    /** Bottom day saver: nearly opaque white over the gesture bar. */
+    private static final int BOT_DAY_SAVER = 0xF0;
+    /** Bottom day performance: a medium black dim; the wallpaper still shows. */
+    private static final int BOT_DAY_PERF = 0x70;
+    /** Bottom night saver: a heavier black dim on the gesture bar. */
+    private static final int BOT_NIGHT_SAVER = 0xC0;
+    /** Bottom night performance: a medium-dark black dim. */
+    private static final int BOT_NIGHT_PERF = 0x80;
 
     /** True while a region records its content. Pieces draw nothing then. */
     static boolean recording;
@@ -94,11 +104,18 @@ final class ProgressiveBlurDrawable extends Drawable {
 
     private final View host;
     private final Region region;
+    /** True when this drawable is the fade tail just below the header, not a region piece. */
+    private final boolean tail;
     private final int[] hostLocation = new int[2];
 
     ProgressiveBlurDrawable(View host, Region region) {
+        this(host, region, false);
+    }
+
+    ProgressiveBlurDrawable(View host, Region region, boolean tail) {
         this.host = host;
         this.region = region;
+        this.tail = tail;
     }
 
     @Override
@@ -108,19 +125,20 @@ final class ProgressiveBlurDrawable extends Drawable {
         Rect union = region.union();
         if (union.isEmpty()) return;
         host.getLocationInWindow(hostLocation);
-        // A piece outside the region, such as the gesture bar strip under an open keyboard,
-        // draws nothing, so the content is not recorded for it.
-        if (hostLocation[1] + bounds.top >= union.bottom || hostLocation[1] + bounds.bottom <= union.top) return;
-        // The top saver scrim fades a little past the title bar, into the messages.
-        // The bottom one fades inside the input row, so it does not extend past the region.
-        int fade = (!region.bottom && BlurBars.powerSave())
-                ? BlurBars.dp(host.getContext(), SAVER_FADE_DP) : 0;
-        int save = canvas.save();
-        if (fade > 0) {
-            canvas.clipRect(bounds.left, bounds.top, bounds.right, bounds.bottom + fade);
-        } else {
-            canvas.clipRect(bounds);
+        int fade = region.topFadeExtension(host.getContext(), union.height());
+        int fadeBottom = union.bottom + fade;
+        if (tail) {
+            // The tail sits just under the header and shows only the fade into the messages.
+            if (hostLocation[1] + bounds.bottom <= union.bottom
+                    || hostLocation[1] + bounds.top >= fadeBottom) return;
+        } else if (hostLocation[1] + bounds.top >= fadeBottom
+                || hostLocation[1] + bounds.bottom <= union.top) {
+            // A piece outside the region, such as the gesture bar strip under an open keyboard,
+            // draws nothing, so the content is not recorded for it.
+            return;
         }
+        int save = canvas.save();
+        canvas.clipRect(bounds);
         canvas.translate(union.left - hostLocation[0], union.top - hostLocation[1]);
         region.draw(canvas, union.width(), union.height(), fade);
         canvas.restoreToCount(save);
@@ -190,97 +208,91 @@ final class ProgressiveBlurDrawable extends Drawable {
             return union;
         }
 
+        /** Extra height of the top frost below the header, so the fade is gone at [TOP_FADE_DP]. */
+        int topFadeExtension(android.content.Context context, int unionHeight) {
+            if (bottom) return 0;
+            return Math.max(0, BlurBars.dp(context, TOP_FADE_DP) - Math.max(unionHeight, 0));
+        }
+
         void draw(Canvas canvas, int width, int height, int fade) {
             boolean saver = BlurBars.powerSave();
+            int drawnHeight = height + Math.max(fade, 0);
             boolean blurred = false;
             if (!saver && Build.VERSION.SDK_INT >= 31 && canvas.isHardwareAccelerated()) {
                 if (gpu == null) gpu = new Gpu();
-                blurred = ((Gpu) gpu).draw(this, canvas, width, height);
+                blurred = ((Gpu) gpu).draw(this, canvas, width, drawnHeight);
             }
-            drawTint(canvas, width, height, fade, blurred, saver);
+            if (bottom) {
+                drawBottomTint(canvas, width, height, saver, blurred);
+            } else {
+                drawTopTint(canvas, width, height, fade, saver, blurred);
+            }
         }
 
-        private void drawTint(Canvas canvas, int width, int height, int fade, boolean blurred, boolean saver) {
-            if (saver) {
-                drawSaverTint(canvas, width, height, fade);
-                return;
-            }
-            boolean dark = bottom ? LineSettings.blurBottomDarkTint() : LineSettings.blurTopDarkTint();
-            int rgb;
-            int alpha;
-            if (dark) {
-                rgb = Color.BLACK;
-                alpha = blurred ? DARK_ALPHA_BLUR : DARK_ALPHA_PLAIN;
-            } else {
-                boolean night = (pieces[0].getResources().getConfiguration().uiMode
-                        & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
-                rgb = night ? Color.BLACK : Color.WHITE;
-                alpha = blurred ? LIGHT_ALPHA_BLUR : LIGHT_ALPHA_PLAIN;
-            }
-            int key = (rgb & 0x00FFFFFF) | (alpha << 24);
-            if (height != tintHeight || key != tintKey) {
-                tintHeight = height;
-                tintKey = key;
-                int edge = key;
-                int middle = (rgb & 0x00FFFFFF) | ((alpha * 3 / 5) << 24);
-                int clear = rgb & 0x00FFFFFF;
-                float from = bottom ? height : 0;
-                float to = bottom ? 0 : height;
-                tint.setShader(new LinearGradient(0, from, 0, to, new int[] {edge, middle, clear},
-                        new float[] {0f, FULL_PART, 1f}, Shader.TileMode.CLAMP));
-            }
-            canvas.drawRect(0, 0, width, height, tint);
+        private boolean night() {
+            if (pieces.length == 0 || pieces[0] == null) return false;
+            return BlurBars.night(pieces[0]);
         }
 
         /**
-         * Top: a dark scrim that stays solid over the status bar and the title, then fades out
-         * over [fade] pixels into the messages.
-         * Bottom: solid only over the gesture bar, then fades out up through the input row so
-         * the icons and the input box stay readable.
+         * A frost from the status bar through the title and into the first messages, gone at
+         * [TOP_FADE_DP] from the top. Day saver is white; the other three states are a black dim.
+         * There is no solid title bar.
          */
-        private void drawSaverTint(Canvas canvas, int width, int height, int fade) {
-            if (bottom) {
-                drawBottomSaverTint(canvas, width, height);
-                return;
-            }
+        private void drawTopTint(Canvas canvas, int width, int height, int fade, boolean saver, boolean blurred) {
             int extended = height + Math.max(fade, 0);
-            int key = (SAVER_ALPHA << 24) | fade;
-            if (height != tintHeight || key != tintKey) {
-                tintHeight = height;
+            if (width <= 0 || extended <= 0) return;
+            boolean night = night();
+            int rgb = (!night && saver) ? Color.WHITE : Color.BLACK;
+            int edgeAlpha;
+            if (night) {
+                edgeAlpha = saver ? TOP_NIGHT_SAVER : TOP_NIGHT_PERF;
+            } else {
+                edgeAlpha = saver ? TOP_DAY_SAVER : TOP_DAY_PERF;
+            }
+            int key = (rgb & 0x00FFFFFF) | (edgeAlpha << 24) | ((saver ? 1 : 0) << 16);
+            if (extended != tintHeight || key != tintKey) {
+                tintHeight = extended;
                 tintKey = key;
-                int edge = SAVER_ALPHA << 24;
-                int clear = 0;
-                float fullUntil = extended <= 0 ? 1f : height / (float) extended;
+                int edge = (edgeAlpha << 24) | (rgb & 0x00FFFFFF);
+                int mid = ((edgeAlpha * 5 / 8) << 24) | (rgb & 0x00FFFFFF);
+                int soft = ((edgeAlpha * 2 / 5) << 24) | (rgb & 0x00FFFFFF);
+                int clear = rgb & 0x00FFFFFF;
+                // The first ~16 dp stay close to the edge alpha (status bar), the title is still
+                // frosted, and the rest falls to clear at 145 dp.
+                // ~16 dp / 145 dp at the status edge, title around 55% of the fade.
+                float status = 0.11f;
+                float title = 0.55f;
                 tint.setShader(new LinearGradient(0, 0, 0, extended,
-                        new int[] {edge, edge, clear},
-                        new float[] {0f, fullUntil, 1f}, Shader.TileMode.CLAMP));
+                        new int[] {edge, edge, mid, soft, clear},
+                        new float[] {0f, status, title * 0.7f, title, 1f}, Shader.TileMode.CLAMP));
             }
             canvas.drawRect(0, 0, width, extended, tint);
         }
 
-        /** Height of the gesture bar strip at the bottom of this region, or 0 if it is not in it. */
-        private int gestureBarHeight() {
-            if (pieces.length == 0 || pieces[0] == null || !pieces[0].isAttachedToWindow()) return 0;
-            View input = pieces[0];
-            if (input.getVisibility() != View.VISIBLE || input.getHeight() == 0) return 0;
-            input.getLocationInWindow(location);
-            int solid = union.bottom - (location[1] + input.getHeight());
-            if (solid <= 1) return 0;
-            return Math.min(solid, Math.max(union.height(), 0));
-        }
-
-        private void drawBottomSaverTint(Canvas canvas, int width, int height) {
+        /**
+         * Strongest at the gesture bar, then fading up through the input row, clear at the top
+         * of the input. Messages above the input are not washed. Day saver is white; the other
+         * three states are a black dim.
+         */
+        private void drawBottomTint(Canvas canvas, int width, int height, boolean saver, boolean blurred) {
             if (width <= 0 || height <= 0) return;
             int solid = Math.min(Math.max(gestureBarHeight(), 0), height);
-            int key = (SAVER_ALPHA << 16) | solid;
+            boolean night = night();
+            int rgb = (!night && saver) ? Color.WHITE : Color.BLACK;
+            int edgeAlpha;
+            if (night) {
+                edgeAlpha = saver ? BOT_NIGHT_SAVER : BOT_NIGHT_PERF;
+            } else {
+                edgeAlpha = saver ? BOT_DAY_SAVER : BOT_DAY_PERF;
+            }
+            int key = (rgb & 0x00FFFFFF) | (edgeAlpha << 24) | (solid << 8) | (saver ? 1 : 0);
             if (height != tintHeight || key != tintKey) {
                 tintHeight = height;
                 tintKey = key;
-                int edge = SAVER_ALPHA << 24;
-                // After a short rise into the input row the scrim is already light, so the
-                // icons and the input box stay visible.
-                int light = 0x33 << 24;
-                int clear = 0;
+                int edge = (edgeAlpha << 24) | (rgb & 0x00FFFFFF);
+                int light = ((edgeAlpha * 1 / 3) << 24) | (rgb & 0x00FFFFFF);
+                int clear = rgb & 0x00FFFFFF;
                 if (solid >= height) {
                     tint.setShader(null);
                     tint.setColor(edge);
@@ -302,6 +314,18 @@ final class ProgressiveBlurDrawable extends Drawable {
             }
             canvas.drawRect(0, 0, width, height, tint);
         }
+
+        /** Height of the gesture bar strip at the bottom of this region, or 0 if it is not in it. */
+        private int gestureBarHeight() {
+            if (pieces.length == 0 || pieces[0] == null || !pieces[0].isAttachedToWindow()) return 0;
+            View input = pieces[0];
+            if (input.getVisibility() != View.VISIBLE || input.getHeight() == 0) return 0;
+            input.getLocationInWindow(location);
+            int solid = union.bottom - (location[1] + input.getHeight());
+            if (solid <= 1) return 0;
+            return Math.min(solid, Math.max(union.height(), 0));
+        }
+
     }
 
     /** The parts that need Android 12 (API 31) or later. Loaded only there. */

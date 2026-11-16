@@ -56,7 +56,6 @@ public final class LineSettings {
     static final String BLUR_SYSTEM_BARS = "blur_system_bars";
     static final String BLUR_TOP_DARK_TINT = "blur_top_dark_tint";
     static final String BLUR_BOTTOM_DARK_TINT = "blur_bottom_dark_tint";
-    static final String CHAT_HEADER_CAPSULE = "chat_header_capsule";
     static final String PREDICTIVE_BACK = "predictive_back";
     static final String SMOOTH_KEYBOARD = "smooth_keyboard";
     static final String CHAT_HAPTICS = "chat_haptics";
@@ -174,20 +173,6 @@ public final class LineSettings {
 
     public static boolean blurBottomDarkTint() {
         return isOn(BLUR_BOTTOM_DARK_TINT);
-    }
-
-    /**
-     * Floating capsule pills on the chat header, off by default so the original full header bar
-     * stays until the user picks Capsule in Andrew's Patch Setting.
-     */
-    public static boolean chatHeaderCapsule() {
-        if (!rowIncluded() || !blurSystemBarsIncluded()) return false;
-        Boolean value = VALUES.get(CHAT_HEADER_CAPSULE);
-        if (value != null) return value;
-        SharedPreferences preferences = preferences();
-        boolean stored = preferences != null && preferences.getBoolean(CHAT_HEADER_CAPSULE, false);
-        VALUES.put(CHAT_HEADER_CAPSULE, stored);
-        return stored;
     }
 
     public static boolean predictiveBack() {
