@@ -122,7 +122,7 @@ final class LineSettingsScreen {
     private static void addSwitches(Activity activity, LinearLayout content) {
         boolean chats = LineSettings.keepChatsUnreadIncluded() || LineSettings.keepUnsentMessagesIncluded();
         boolean general = LineSettings.externalBrowserIncluded() || LineSettings.disableVoomIncluded()
-                || LineSettings.customFontIncluded();
+                || LineSettings.customFontIncluded() || LineSettings.blurSystemBarsIncluded();
         boolean tabs = LineSettings.hideTodayTabIncluded() || LineSettings.hideShoppingTabIncluded()
                 || LineSettings.hideVoomTabIncluded() || LineSettings.hideWalletTabIncluded();
         boolean buttons = LineSettings.hideAiFriendsIncluded() || LineSettings.hideCommunityButtonIncluded()
@@ -221,6 +221,17 @@ final class LineSettingsScreen {
                         "Uses the font that you upload on LINE's Font page.",
                         () -> close.setVisibility(View.VISIBLE)));
                 content.addView(close);
+            }
+            if (LineSettings.blurSystemBarsIncluded()) {
+                // Screens that are open keep their bars until LINE restarts.
+                View restart = row(activity, "Restart LINE", "Shows your system bar change now.", true);
+                restart.setVisibility(View.GONE);
+                restart.setOnClickListener(v -> restart(activity));
+                content.addView(toggle(activity, LineSettings.BLUR_SYSTEM_BARS, "Transparent system bars with blur",
+                        "No theme color behind the status bar and the gesture bar. In chats, messages blur "
+                                + "out behind the header.",
+                        () -> restart.setVisibility(View.VISIBLE)));
+                content.addView(restart);
             }
         }
 
