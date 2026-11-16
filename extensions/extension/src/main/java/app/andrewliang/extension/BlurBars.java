@@ -9,6 +9,7 @@ import android.graphics.Outline;
 import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.NinePatchDrawable;
 import android.os.Build;
 import android.os.Bundle;
@@ -224,9 +225,10 @@ public final class BlurBars {
     }
 
     /**
-     * Makes the chat background and its parents fill the window, and clears a solid color on the
-     * window so it cannot show through under the input bar. Returns true while the switch is on,
-     * so the patch can skip LINE's own top margin of the status bar height.
+     * Makes the chat background and its parents fill the window. A solid color on the window is
+     * cleared only when the skin is a covering image, so a default or solid-color skin keeps its
+     * color and still reaches the gesture bar. Returns true while the switch is on, so the patch
+     * can skip LINE's own top margin of the status bar height.
      */
     public static boolean prepareChatSkin(View view) {
         if (!enabled() || view == null) return false;
@@ -314,11 +316,14 @@ public final class BlurBars {
     }
 
     /**
-     * The chat activity's window is already transparent, so whatever is behind the chat (often
-     * the dark chat list) shows in any gap under the input bar. Clear a solid background on the
-     * window, the decor view, the content view and the chat root, so only the skin can fill them.
+     * When the skin is a photo or a theme image, clear a solid background on the window, the decor
+     * view, the content view and the chat root, so the image can fill the window. The skin's own
+     * background is left alone: the default chat color and a solid-color skin live there, and
+     * clearing them would leave the window black. Those colors still fill the window because
+     * {@link #fillWindow} stretches the skin to the gesture bar.
      */
     private static void clearWindowBackground(View view) {
+        if (!hasCoveringArtwork(view)) return;
         Activity activity = activityOf(view.getContext());
         if (activity == null) return;
         Window window = activity.getWindow();
@@ -330,8 +335,27 @@ public final class BlurBars {
         if (!isTransparent(background)) {
             window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         }
-        makeTransparent(view);
         if (view.getParent() instanceof View) makeTransparent((View) view.getParent());
+    }
+
+    /** A photo or theme image that can cover the window, not a solid or the default color. */
+    private static boolean hasCoveringArtwork(View view) {
+        Drawable drawable = null;
+        if (view instanceof ImageView) drawable = ((ImageView) view).getDrawable();
+        if (!isArtwork(drawable)) drawable = view.getBackground();
+        return isArtwork(drawable);
+    }
+
+    private static boolean isArtwork(Drawable drawable) {
+        if (drawable == null || drawable instanceof ColorDrawable) return false;
+        if (drawable instanceof LayerDrawable) {
+            LayerDrawable layer = (LayerDrawable) drawable;
+            for (int i = 0; i < layer.getNumberOfLayers(); i++) {
+                if (isArtwork(layer.getDrawable(i))) return true;
+            }
+            return false;
+        }
+        return true;
     }
 
     private static void makeTransparent(View view) {
@@ -594,6 +618,7 @@ public final class BlurBars {
         final ProgressiveBlurDrawable.Region top;
         final ProgressiveBlurDrawable.Region bottom;
         final ProgressiveBlurDrawable headerBlur;
+        Drawable headerScrim;
         final ProgressiveBlurDrawable inputBlur;
         final ProgressiveBlurDrawable spacerBlur;
 
@@ -642,7 +667,13 @@ public final class BlurBars {
         }
 
         private void applyBackgrounds() {
-            if (header.getBackground() != headerBlur) header.setBackground(headerBlur);
+            if (ChatHeaderPills.enabled()) {
+                if (headerScrim == null) headerScrim = ChatHeaderPills.newScrim();
+                if (header.getBackground() != headerScrim) header.setBackground(headerScrim);
+            } else if (header.getBackground() != headerBlur) {
+                header.setBackground(headerBlur);
+            }
+            ChatHeaderPills.apply(header, new View[] {skin, content});
             if (input != null) {
                 if (input.getBackground() != inputBlur) input.setBackground(inputBlur);
                 // The row of the input box. The box and the buttons in it stay.
@@ -671,7 +702,7 @@ public final class BlurBars {
         /** White system bar icons over a dark tint. */
         private void lightIcons() {
             boolean saver = powerSave();
-            boolean status = saver || LineSettings.blurTopDarkTint();
+            boolean status = saver || LineSettings.blurTopDarkTint() || ChatHeaderPills.enabled();
             boolean navigation = saver || LineSettings.blurBottomDarkTint();
             if (!status && !navigation) return;
             if (Build.VERSION.SDK_INT >= 30) {

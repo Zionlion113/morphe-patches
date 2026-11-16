@@ -255,6 +255,7 @@ final class LineSettingsScreen {
                 content.addView(toggle(activity, LineSettings.BLUR_BOTTOM_DARK_TINT, "Bottom blur dark tint",
                         "Darkens the blur behind the chat input and the gesture bar. Off uses a light tint "
                                 + "in light mode.", null));
+                content.addView(topBarStyle(activity));
                 content.addView(restart);
             }
             if (LineSettings.predictiveBackIncluded()) {
@@ -375,6 +376,33 @@ final class LineSettingsScreen {
             toggle.setChecked(on);
             LineSettings.set(key, on);
             if (onChange != null) onChange.run();
+        });
+        return row;
+    }
+
+    /** Original vs Capsule for the chat-room header. Live, so it needs no restart. */
+    private static View topBarStyle(Activity activity) {
+        View row = row(activity, "Top bar style",
+                "Original keeps LINE's full header bar. Capsule uses floating pills for the back "
+                        + "button, the name, and the actions, in the chat room only.",
+                true);
+        TextView value = row.findViewById(id(activity, "setting_inlined_value", "id"));
+        if (value != null) {
+            value.setText(LineSettings.chatHeaderCapsule() ? "Capsule" : "Original");
+            look.paint(value, look.sectionOrSecondary());
+        }
+        row.setOnClickListener(v -> {
+            String[] labels = {"Original", "Capsule"};
+            int checked = LineSettings.chatHeaderCapsule() ? 1 : 0;
+            new AlertDialog.Builder(activity)
+                    .setTitle("Top bar style")
+                    .setSingleChoiceItems(labels, checked, (d, which) -> {
+                        LineSettings.set(LineSettings.CHAT_HEADER_CAPSULE, which == 1);
+                        if (value != null) value.setText(labels[which]);
+                        d.dismiss();
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
         });
         return row;
     }

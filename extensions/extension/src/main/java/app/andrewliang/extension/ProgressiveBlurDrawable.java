@@ -56,7 +56,7 @@ final class ProgressiveBlurDrawable extends Drawable {
     private static final float SAVER_FADE_DP = 28f;
 
     /** True while a region records its content. Pieces draw nothing then. */
-    private static boolean recording;
+    static boolean recording;
 
     /**
      * One pass of a Gaussian blur along [dir]. The distance from the edge is the y position, or
@@ -111,13 +111,15 @@ final class ProgressiveBlurDrawable extends Drawable {
         // A piece outside the region, such as the gesture bar strip under an open keyboard,
         // draws nothing, so the content is not recorded for it.
         if (hostLocation[1] + bounds.top >= union.bottom || hostLocation[1] + bounds.bottom <= union.top) return;
-        int fade = BlurBars.powerSave() ? BlurBars.dp(host.getContext(), SAVER_FADE_DP) : 0;
+        // The top saver scrim fades a little past the title bar, into the messages.
+        // The bottom one fades inside the input row, so it does not extend past the region.
+        int fade = (!region.bottom && BlurBars.powerSave())
+                ? BlurBars.dp(host.getContext(), SAVER_FADE_DP) : 0;
         int save = canvas.save();
-        // In Battery Saver the fade continues a little past the bar, into the messages.
-        if (region.bottom) {
-            canvas.clipRect(bounds.left, bounds.top - fade, bounds.right, bounds.bottom);
-        } else {
+        if (fade > 0) {
             canvas.clipRect(bounds.left, bounds.top, bounds.right, bounds.bottom + fade);
+        } else {
+            canvas.clipRect(bounds);
         }
         canvas.translate(union.left - hostLocation[0], union.top - hostLocation[1]);
         region.draw(canvas, union.width(), union.height(), fade);
@@ -231,10 +233,16 @@ final class ProgressiveBlurDrawable extends Drawable {
         }
 
         /**
-         * A dark scrim that stays solid over the whole bar (status bar and title, or input bar
-         * and gesture bar), then fades out over [fade] pixels into the messages.
+         * Top: a dark scrim that stays solid over the status bar and the title, then fades out
+         * over [fade] pixels into the messages.
+         * Bottom: solid only over the gesture bar, then fades out up through the input row so
+         * the icons and the input box stay readable.
          */
         private void drawSaverTint(Canvas canvas, int width, int height, int fade) {
+            if (bottom) {
+                drawBottomSaverTint(canvas, width, height);
+                return;
+            }
             int extended = height + Math.max(fade, 0);
             int key = (SAVER_ALPHA << 24) | fade;
             if (height != tintHeight || key != tintKey) {
@@ -243,21 +251,56 @@ final class ProgressiveBlurDrawable extends Drawable {
                 int edge = SAVER_ALPHA << 24;
                 int clear = 0;
                 float fullUntil = extended <= 0 ? 1f : height / (float) extended;
-                if (bottom) {
-                    tint.setShader(new LinearGradient(0, height, 0, -Math.max(fade, 0),
-                            new int[] {edge, edge, clear},
-                            new float[] {0f, fullUntil, 1f}, Shader.TileMode.CLAMP));
+                tint.setShader(new LinearGradient(0, 0, 0, extended,
+                        new int[] {edge, edge, clear},
+                        new float[] {0f, fullUntil, 1f}, Shader.TileMode.CLAMP));
+            }
+            canvas.drawRect(0, 0, width, extended, tint);
+        }
+
+        /** Height of the gesture bar strip at the bottom of this region, or 0 if it is not in it. */
+        private int gestureBarHeight() {
+            if (pieces.length == 0 || pieces[0] == null || !pieces[0].isAttachedToWindow()) return 0;
+            View input = pieces[0];
+            if (input.getVisibility() != View.VISIBLE || input.getHeight() == 0) return 0;
+            input.getLocationInWindow(location);
+            int solid = union.bottom - (location[1] + input.getHeight());
+            if (solid <= 1) return 0;
+            return Math.min(solid, Math.max(union.height(), 0));
+        }
+
+        private void drawBottomSaverTint(Canvas canvas, int width, int height) {
+            if (width <= 0 || height <= 0) return;
+            int solid = Math.min(Math.max(gestureBarHeight(), 0), height);
+            int key = (SAVER_ALPHA << 16) | solid;
+            if (height != tintHeight || key != tintKey) {
+                tintHeight = height;
+                tintKey = key;
+                int edge = SAVER_ALPHA << 24;
+                // After a short rise into the input row the scrim is already light, so the
+                // icons and the input box stay visible.
+                int light = 0x33 << 24;
+                int clear = 0;
+                if (solid >= height) {
+                    tint.setShader(null);
+                    tint.setColor(edge);
+                } else if (solid <= 0) {
+                    tint.setColor(0);
+                    tint.setShader(new LinearGradient(0, height, 0, 0,
+                            new int[] {edge, light, clear},
+                            new float[] {0f, 0.3f, 1f}, Shader.TileMode.CLAMP));
                 } else {
-                    tint.setShader(new LinearGradient(0, 0, 0, extended,
-                            new int[] {edge, edge, clear},
-                            new float[] {0f, fullUntil, 1f}, Shader.TileMode.CLAMP));
+                    tint.setColor(0);
+                    float solidUntil = solid / (float) height;
+                    float early = (solid + (height - solid) * 0.3f) / (float) height;
+                    if (early <= solidUntil + 0.02f) early = Math.min(1f, solidUntil + 0.08f);
+                    if (early >= 0.999f) early = (solidUntil + 1f) * 0.5f;
+                    tint.setShader(new LinearGradient(0, height, 0, 0,
+                            new int[] {edge, edge, light, clear},
+                            new float[] {0f, solidUntil, early, 1f}, Shader.TileMode.CLAMP));
                 }
             }
-            if (bottom) {
-                canvas.drawRect(0, -Math.max(fade, 0), width, height, tint);
-            } else {
-                canvas.drawRect(0, 0, width, extended, tint);
-            }
+            canvas.drawRect(0, 0, width, height, tint);
         }
     }
 
