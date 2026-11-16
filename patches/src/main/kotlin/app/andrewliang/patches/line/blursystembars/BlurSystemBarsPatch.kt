@@ -25,8 +25,9 @@ val blurSystemBarsPatch = bytecodePatch(
     name = "[General] Transparent system bars with blur",
     description = "Removes the theme color blocks behind the status bar and the gesture bar on every " +
         "screen: the theme artwork fills them, and the bottom tabs keep their theme. In chats, the " +
-        "header and the input bar stay on top and messages blur out behind them. Battery Saver " +
-        "shows a dark fade instead of the blur.",
+        "background fills the window, the header and the input bar stay on top, and messages blur " +
+        "out behind them. The input box has smooth rounded corners. Battery Saver shows a dark " +
+        "fade instead of the blur.",
     default = true,
 ) {
     compatibleWith(COMPATIBILITY_LINE)
@@ -185,6 +186,44 @@ val blurSystemBarsPatch = bytecodePatch(
                 """,
             )
         }
+
+        // The chat background is drawn shorter than the window: it stops above the input bar,
+        // and official themes also leave out the status bar and the gesture bar. After those
+        // bounds are set, the extension crops the image to the full view. The layout method
+        // that would push official themes down by the status bar height is skipped, and captures
+        // of the background use the full view size.
+        val superDraw = ChatHistorySkinOnDrawFingerprint.method.implementation!!.instructions.indexOfLast {
+            it.opcode == Opcode.INVOKE_SUPER &&
+                (it as? ReferenceInstruction)?.reference is MethodReference &&
+                (it.reference as MethodReference).name == "onDraw"
+        }
+        if (superDraw < 0) throw PatchException("super.onDraw not found in ChatHistorySkinImageView")
+        ChatHistorySkinOnDrawFingerprint.method.addInstruction(
+            superDraw,
+            "invoke-static { p0 }, $EXTENSION->layoutChatSkin(Landroid/widget/ImageView;)V",
+        )
+        ChatHistorySkinAreaFingerprint.method.addInstructions(
+            0,
+            """
+                invoke-static { p0 }, $EXTENSION->chatSkinArea(Landroid/widget/ImageView;)Landroid/util/Size;
+                move-result-object v0
+                if-eqz v0, :morphe_skin_area
+                return-object v0
+                :morphe_skin_area
+                nop
+            """.trimIndent(),
+        )
+        ChatHistorySkinLayoutFingerprint.method.addInstructions(
+            0,
+            """
+                invoke-static { p0 }, $EXTENSION->prepareChatSkin(Landroid/view/View;)Z
+                move-result v0
+                if-eqz v0, :morphe_skin_layout
+                return-void
+                :morphe_skin_layout
+                nop
+            """.trimIndent(),
+        )
 
         markLineSettingIncluded("blurSystemBars")
     }

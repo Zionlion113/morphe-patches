@@ -4,6 +4,8 @@ import app.morphe.patcher.Fingerprint
 import app.morphe.patcher.fieldAccess
 import app.morphe.patcher.methodCall
 import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
+import com.android.tools.smali.dexlib2.iface.reference.FieldReference
 
 /**
  * LINE's edge-to-edge helper (`ea2/g.f` on 26.16.0). Each screen passes its window and an
@@ -44,3 +46,45 @@ internal object ComposeTopBarFingerprint : Fingerprint(
         methodCall(definingClass = "Lcom/linecorp/line/compose/theme/a;", name = "c"),
     ),
 )
+
+private const val CHAT_SKIN_CLASS =
+    "Lcom/linecorp/line/chat/ui/resources/message/message/list/skin/ChatHistorySkinImageView;"
+
+/**
+ * {@code ChatHistorySkinImageView.onDraw}. LINE sets the background's bounds to a shorter area
+ * that leaves out the input bar and the gesture bar, then calls {@code super.onDraw}.
+ */
+internal object ChatHistorySkinOnDrawFingerprint : Fingerprint(
+    returnType = "V",
+    parameters = listOf("Landroid/graphics/Canvas;"),
+    custom = { method, classDef -> classDef.type == CHAT_SKIN_CLASS && method.name == "onDraw" },
+)
+
+/**
+ * {@code ChatHistorySkinImageView.getContentSkinImageArea}. LINE uses this size when it captures
+ * the background as a bitmap.
+ */
+internal object ChatHistorySkinAreaFingerprint : Fingerprint(
+    returnType = "Landroid/util/Size;",
+    parameters = listOf(),
+    custom = { method, classDef ->
+        classDef.type == CHAT_SKIN_CLASS && method.name == "getContentSkinImageArea"
+    },
+)
+
+/**
+ * The method that sets the skin view's top margin to the status bar height for official themes
+ * that have a header and a footer ({@code L()} on 26.14.0–26.16.0).
+ */
+internal object ChatHistorySkinLayoutFingerprint : Fingerprint(
+    returnType = "V",
+    parameters = listOf(),
+    custom = { method, classDef ->
+        classDef.type == CHAT_SKIN_CLASS && method.implementation?.instructions?.any { instruction ->
+            instruction.opcode == Opcode.IPUT &&
+                (instruction as? ReferenceInstruction)?.reference is FieldReference &&
+                (instruction.reference as FieldReference).name == "topMargin"
+        } == true
+    },
+)
+

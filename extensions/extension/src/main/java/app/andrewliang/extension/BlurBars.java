@@ -3,14 +3,21 @@ package app.andrewliang.extension;
 import android.app.Activity;
 import android.app.Application;
 import android.content.Context;
+import android.graphics.Outline;
+import android.graphics.Rect;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.NinePatchDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Size;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewOutlineProvider;
 import android.view.ViewParent;
 import android.view.ViewTreeObserver;
 import android.view.Window;
 import android.view.WindowInsetsController;
+import android.widget.ImageView;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -32,6 +39,9 @@ import java.util.WeakHashMap;
  *   <li>In a chat, the header and the input bar stay on top, and the messages scroll behind them.
  *       The header, the input bar and the gesture bar strip get a {@link ProgressiveBlurDrawable}.
  *       The messages behind them are blurred most at the screen edge.</li>
+ *   <li>The chat background fills the whole window, from the status bar to the gesture bar, cropped
+ *       to the window so it is not stretched. The rounded input box is clipped with
+ *       {@link ViewOutlineProvider}, so its corners are drawn by the GPU and stay smooth.</li>
  * </ul>
  * The top bars of Compose screens are changed by the patch itself.
  *
@@ -70,6 +80,11 @@ public final class BlurBars {
     private static final String CHAT_INPUT = "chat_ui_message";
     private static final String CHAT_INPUT_ROW = "chat_ui_input_bar_container";
     private static final String CHAT_SPACER = "chat_ui_bottom_padding_spacer";
+    private static final String CHAT_INPUT_PILL = "chat_ui_message_container";
+    private static final String CHAT_INPUT_PILL_BG = "chat_ui_message_edit_text_background";
+
+    /** Corner radius of the official input 9-patch, which is half of its 38 dp height. */
+    private static final float INPUT_PILL_RADIUS_DP = 19f;
 
     /** A list that starts lower than this below the header has a banner above it. */
     private static final int BANNER_GAP_DP = 4;
@@ -90,6 +105,9 @@ public final class BlurBars {
 
     /** Decor views with a scan posted. */
     private static final Map<View, Boolean> PENDING = new WeakHashMap<>();
+
+    /** Skin views with a layout fix posted from {@link #layoutChatSkin}. */
+    private static final Map<View, Boolean> SKIN_PREPARE = new WeakHashMap<>();
 
     /** Chat screens by decor view. */
     private static final Map<View, ChatScreen> CHATS = new WeakHashMap<>();
@@ -167,6 +185,97 @@ public final class BlurBars {
      */
     public static Object composeArtworkScale(Object fillBounds, Object crop) {
         return enabled() ? crop : fillBounds;
+    }
+
+    /**
+     * Lays the chat background out to fill this view, cropped and without stretching. Called from
+     * the patched {@code ChatHistorySkinImageView.onDraw}, after LINE has set the drawable bounds
+     * to a shorter area that stops above the input bar and the gesture bar.
+     */
+    public static void layoutChatSkin(ImageView view) {
+        if (!enabled() || view == null) return;
+        if (needsPrepare(view) && SKIN_PREPARE.put(view, Boolean.TRUE) == null) {
+            view.post(() -> {
+                SKIN_PREPARE.remove(view);
+                prepareChatSkin(view);
+            });
+        }
+        int width = view.getWidth();
+        int height = view.getHeight();
+        if (width <= 0 || height <= 0) return;
+        Drawable drawable = view.getDrawable() != null ? view.getDrawable() : view.getBackground();
+        if (drawable == null) return;
+        drawable.setBounds(cropBounds(drawable, width, height));
+    }
+
+    /**
+     * The size of the chat background, for LINE's own capture of it. The view's size while it is
+     * laid out and the switch is on, otherwise {@code null} so LINE's own size is kept.
+     */
+    public static Size chatSkinArea(ImageView view) {
+        if (!enabled() || view == null) return null;
+        int width = view.getWidth();
+        int height = view.getHeight();
+        if (width <= 0 || height <= 0) return null;
+        return new Size(width, height);
+    }
+
+    /**
+     * Clears padding and margins on a chat background view so it can fill the window. Returns true
+     * while the switch is on, so the patch can skip LINE's own top margin of the status bar height.
+     */
+    public static boolean prepareChatSkin(View view) {
+        if (!enabled() || view == null) return false;
+        if (view.getFitsSystemWindows()) view.setFitsSystemWindows(false);
+        if (view.getPaddingLeft() != 0 || view.getPaddingTop() != 0
+                || view.getPaddingRight() != 0 || view.getPaddingBottom() != 0) {
+            view.setPadding(0, 0, 0, 0);
+        }
+        ViewGroup.LayoutParams params = view.getLayoutParams();
+        if (params instanceof ViewGroup.MarginLayoutParams) {
+            ViewGroup.MarginLayoutParams margin = (ViewGroup.MarginLayoutParams) params;
+            if (margin.topMargin != 0 || margin.bottomMargin != 0
+                    || margin.leftMargin != 0 || margin.rightMargin != 0) {
+                margin.topMargin = 0;
+                margin.bottomMargin = 0;
+                margin.leftMargin = 0;
+                margin.rightMargin = 0;
+                view.setLayoutParams(margin);
+            }
+        }
+        return true;
+    }
+
+    private static boolean needsPrepare(View view) {
+        if (view.getFitsSystemWindows()) return true;
+        if (view.getPaddingLeft() != 0 || view.getPaddingTop() != 0
+                || view.getPaddingRight() != 0 || view.getPaddingBottom() != 0) {
+            return true;
+        }
+        ViewGroup.LayoutParams params = view.getLayoutParams();
+        if (params instanceof ViewGroup.MarginLayoutParams) {
+            ViewGroup.MarginLayoutParams margin = (ViewGroup.MarginLayoutParams) params;
+            return margin.topMargin != 0 || margin.bottomMargin != 0
+                    || margin.leftMargin != 0 || margin.rightMargin != 0;
+        }
+        return false;
+    }
+
+    /**
+     * Bounds that fill [width] x [height]: a 9-patch or a drawable with no size is stretched, and
+     * any other image is scaled to fill the height and width, then cropped at the center.
+     */
+    private static Rect cropBounds(Drawable drawable, int width, int height) {
+        if (drawable instanceof NinePatchDrawable) return new Rect(0, 0, width, height);
+        int intrinsicWidth = drawable.getIntrinsicWidth();
+        int intrinsicHeight = drawable.getIntrinsicHeight();
+        if (intrinsicWidth <= 0 || intrinsicHeight <= 0) return new Rect(0, 0, width, height);
+        float scale = Math.max(width / (float) intrinsicWidth, height / (float) intrinsicHeight);
+        int drawnWidth = Math.round(intrinsicWidth * scale);
+        int drawnHeight = Math.round(intrinsicHeight * scale);
+        int left = (width - drawnWidth) / 2;
+        int top = (height - drawnHeight) / 2;
+        return new Rect(left, top, left + drawnWidth, top + drawnHeight);
     }
 
     static boolean enabled() {
@@ -431,6 +540,7 @@ public final class BlurBars {
                 int id = id(context, name);
                 if (id != 0) hide(header.findViewById(id));
             }
+            if (skin != null) prepareChatSkin(skin);
             applyBackgrounds();
             extendList();
         }
@@ -447,6 +557,7 @@ public final class BlurBars {
                 // The row of the input box. The box and the buttons in it stay.
                 View row = find(input, CHAT_INPUT_ROW);
                 if (row != null && row.getBackground() != null) row.setBackground(null);
+                smoothInputPill(input);
             }
             if (spacer != null) {
                 if (spacer.getVisibility() == View.INVISIBLE) spacer.setVisibility(View.VISIBLE);
@@ -553,6 +664,38 @@ public final class BlurBars {
                 }
             }
             if (changed) redraw();
+        }
+    }
+
+    /**
+     * Clips the rounded input box with a GPU outline of the official corner radius, so the 9-patch
+     * edges, which are only in xhdpi, are not jagged against the blur behind them.
+     */
+    private static void smoothInputPill(View input) {
+        View container = find(input, CHAT_INPUT_PILL);
+        View background = find(input, CHAT_INPUT_PILL_BG);
+        if (container != null) roundClip(container);
+        if (background != null) roundClip(background);
+    }
+
+    private static void roundClip(View view) {
+        if (!(view.getOutlineProvider() instanceof PillOutline)) {
+            view.setOutlineProvider(new PillOutline());
+        }
+        if (!view.getClipToOutline()) view.setClipToOutline(true);
+    }
+
+    private static final class PillOutline extends ViewOutlineProvider {
+        @Override
+        public void getOutline(View view, Outline outline) {
+            int width = view.getWidth();
+            int height = view.getHeight();
+            if (width <= 0 || height <= 0) {
+                outline.setEmpty();
+                return;
+            }
+            float radius = Math.min(dp(view.getContext(), INPUT_PILL_RADIUS_DP), Math.min(width, height) / 2f);
+            outline.setRoundRect(0, 0, width, height, radius);
         }
     }
 }
