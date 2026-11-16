@@ -2,13 +2,9 @@ package app.andrewliang.extension;
 
 import android.app.Activity;
 import android.app.Application;
-import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.PowerManager;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
@@ -79,7 +75,6 @@ public final class BlurBars {
     private static final int BANNER_GAP_DP = 4;
 
     private static boolean registered;
-    private static volatile boolean powerSave;
 
     /** Resource ids by name. 0 when this LINE version has no such id. */
     private static final Map<String, Integer> IDS = new java.util.HashMap<>();
@@ -179,32 +174,16 @@ public final class BlurBars {
     }
 
     static boolean powerSave() {
-        return powerSave;
+        return PowerSave.isOn();
     }
 
     private static void watchPowerSave(Application application) {
-        PowerManager power = (PowerManager) application.getSystemService(Context.POWER_SERVICE);
-        if (power == null) return;
-        powerSave = power.isPowerSaveMode();
-        BroadcastReceiver receiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                powerSave = power.isPowerSaveMode();
-                for (ChatScreen chat : new ArrayList<>(CHATS.values())) {
-                    if (chat != null) chat.redraw();
-                }
+        PowerSave.init(application);
+        PowerSave.addListener(() -> {
+            for (ChatScreen chat : new ArrayList<>(CHATS.values())) {
+                if (chat != null) chat.redraw();
             }
-        };
-        IntentFilter filter = new IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED);
-        try {
-            if (Build.VERSION.SDK_INT >= 33) {
-                application.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
-            } else {
-                application.registerReceiver(receiver, filter);
-            }
-        } catch (RuntimeException ignored) {
-            // Without the receiver, the mode is read again when a chat opens.
-        }
+        });
     }
 
     private static void watch(Activity activity) {
@@ -227,6 +206,12 @@ public final class BlurBars {
         ViewTreeObserver observer = decor.getViewTreeObserver();
         // A layout pass can add a fragment with new headers. Scan once after it.
         observer.addOnGlobalLayoutListener(() -> {
+            // While the keyboard moves, LINE lays out the chat on every frame. The blur follows
+            // it from onPreDraw, and one scan runs when the keyboard stops.
+            if (KeyboardMotion.isMoving(decor)) return;
+            if (PENDING.put(decor, Boolean.TRUE) == null) decor.post(scan);
+        });
+        KeyboardMotion.onStop(decor, () -> {
             if (PENDING.put(decor, Boolean.TRUE) == null) decor.post(scan);
         });
         observer.addOnPreDrawListener(() -> {

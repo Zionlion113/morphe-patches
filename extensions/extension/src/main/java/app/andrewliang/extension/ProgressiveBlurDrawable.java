@@ -104,6 +104,9 @@ final class ProgressiveBlurDrawable extends Drawable {
         Rect union = region.union();
         if (union.isEmpty()) return;
         host.getLocationInWindow(hostLocation);
+        // A piece outside the region, such as the gesture bar strip under an open keyboard,
+        // draws nothing, so the content is not recorded for it.
+        if (hostLocation[1] + bounds.top >= union.bottom || hostLocation[1] + bounds.bottom <= union.top) return;
         int save = canvas.save();
         canvas.clipRect(bounds);
         canvas.translate(union.left - hostLocation[0], union.top - hostLocation[1]);
@@ -156,7 +159,12 @@ final class ProgressiveBlurDrawable extends Drawable {
             }
         }
 
-        /** The union of the visible pieces, in window coordinates. */
+        /**
+         * The union of the visible pieces, in window coordinates. A piece joins only if it touches
+         * the pieces before it. When the keyboard opens in a chat, LINE puts a gap of the keyboard
+         * height between the input bar and the gesture bar strip. The keyboard covers that gap and
+         * the strip, so the region is then the input bar alone, and its blur ends at the keyboard.
+         */
         Rect union() {
             union.setEmpty();
             for (View piece : pieces) {
@@ -164,6 +172,7 @@ final class ProgressiveBlurDrawable extends Drawable {
                         || piece.getHeight() == 0) continue;
                 piece.getLocationInWindow(location);
                 part.set(location[0], location[1], location[0] + piece.getWidth(), location[1] + piece.getHeight());
+                if (!union.isEmpty() && (part.top > union.bottom + 1 || part.bottom < union.top - 1)) continue;
                 union.union(part);
             }
             return union;

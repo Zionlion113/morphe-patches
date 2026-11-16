@@ -56,6 +56,10 @@ public final class LineSettings {
     static final String BLUR_SYSTEM_BARS = "blur_system_bars";
     static final String BLUR_TOP_DARK_TINT = "blur_top_dark_tint";
     static final String BLUR_BOTTOM_DARK_TINT = "blur_bottom_dark_tint";
+    static final String PREDICTIVE_BACK = "predictive_back";
+    static final String SMOOTH_KEYBOARD = "smooth_keyboard";
+    static final String CHAT_HAPTICS = "chat_haptics";
+    static final String SCROLL_REFRESH_RATE = "scroll_refresh_rate";
 
     /** The resource name of the row title. The settings patch adds it to strings.xml. */
     private static final String TITLE_RESOURCE = "andrew_patch_settings";
@@ -169,6 +173,22 @@ public final class LineSettings {
 
     public static boolean blurBottomDarkTint() {
         return isOn(BLUR_BOTTOM_DARK_TINT);
+    }
+
+    public static boolean predictiveBack() {
+        return isOn(PREDICTIVE_BACK);
+    }
+
+    public static boolean smoothKeyboard() {
+        return isOn(SMOOTH_KEYBOARD);
+    }
+
+    public static boolean chatHaptics() {
+        return isOn(CHAT_HAPTICS);
+    }
+
+    public static boolean scrollRefreshRate() {
+        return isOn(SCROLL_REFRESH_RATE);
     }
 
     // The patches that clear a "shown" boolean in place call these: they give false while the
@@ -338,6 +358,22 @@ public final class LineSettings {
     }
 
     static boolean blurSystemBarsIncluded() {
+        return false;
+    }
+
+    static boolean predictiveBackIncluded() {
+        return false;
+    }
+
+    static boolean smoothKeyboardIncluded() {
+        return false;
+    }
+
+    static boolean chatHapticsIncluded() {
+        return false;
+    }
+
+    static boolean scrollRefreshRateIncluded() {
         return false;
     }
 

@@ -3,20 +3,7 @@ package app.andrewliang.patches.line.blursystembars
 import app.morphe.patcher.Fingerprint
 import app.morphe.patcher.fieldAccess
 import app.morphe.patcher.methodCall
-import app.morphe.patcher.string
 import com.android.tools.smali.dexlib2.Opcode
-
-/**
- * `LineApplication.onCreate()`. LINE does not obfuscate the class, and the method passes its own
- * name as a trace label.
- */
-internal object LineApplicationOnCreateFingerprint : Fingerprint(
-    definingClass = "Ljp/naver/line/android/LineApplication;",
-    name = "onCreate",
-    returnType = "V",
-    parameters = listOf(),
-    filters = listOf(string("LineApplication.onCreate")),
-)
 
 /**
  * LINE's edge-to-edge helper (`ea2/g.f` on 26.16.0). Each screen passes its window and an

@@ -1,5 +1,6 @@
 package app.andrewliang.patches.line.blursystembars
 
+import app.andrewliang.patches.line.shared.LineApplicationOnCreateFingerprint
 import app.andrewliang.patches.line.shared.lineSettingsExtensionPatch
 import app.andrewliang.patches.line.shared.markLineSettingIncluded
 import app.andrewliang.patches.shared.Constants.COMPATIBILITY_LINE

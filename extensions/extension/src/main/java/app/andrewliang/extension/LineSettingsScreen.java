@@ -120,9 +120,12 @@ final class LineSettingsScreen {
     }
 
     private static void addSwitches(Activity activity, LinearLayout content) {
-        boolean chats = LineSettings.keepChatsUnreadIncluded() || LineSettings.keepUnsentMessagesIncluded();
+        boolean chats = LineSettings.keepChatsUnreadIncluded() || LineSettings.keepUnsentMessagesIncluded()
+                || LineSettings.smoothKeyboardIncluded() || LineSettings.chatHapticsIncluded()
+                || LineSettings.scrollRefreshRateIncluded();
         boolean general = LineSettings.externalBrowserIncluded() || LineSettings.disableVoomIncluded()
-                || LineSettings.customFontIncluded() || LineSettings.blurSystemBarsIncluded();
+                || LineSettings.customFontIncluded() || LineSettings.blurSystemBarsIncluded()
+                || LineSettings.predictiveBackIncluded();
         boolean tabs = LineSettings.hideTodayTabIncluded() || LineSettings.hideShoppingTabIncluded()
                 || LineSettings.hideVoomTabIncluded() || LineSettings.hideWalletTabIncluded();
         boolean buttons = LineSettings.hideAiFriendsIncluded() || LineSettings.hideCommunityButtonIncluded()
@@ -147,6 +150,21 @@ final class LineSettingsScreen {
             if (LineSettings.keepUnsentMessagesIncluded()) {
                 content.addView(toggle(activity, LineSettings.KEEP_UNSENT_MESSAGES, "Keep unsent messages",
                         "Keeps messages that others unsend, with a red \"Unsent\" label next to the time.", null));
+            }
+            if (LineSettings.smoothKeyboardIncluded()) {
+                content.addView(toggle(activity, LineSettings.SMOOTH_KEYBOARD, "Smooth keyboard animation",
+                        "The blurred input bar follows the keyboard frame by frame, with less work on each "
+                                + "frame. Android 11 and later.", null));
+            }
+            if (LineSettings.chatHapticsIncluded()) {
+                content.addView(toggle(activity, LineSettings.CHAT_HAPTICS, "Haptic feedback",
+                        "A short vibration when you long-press a message, send, or unsend. Follows the "
+                                + "system touch feedback setting.", null));
+            }
+            if (LineSettings.scrollRefreshRateIncluded()) {
+                content.addView(toggle(activity, LineSettings.SCROLL_REFRESH_RATE, "High refresh rate while scrolling",
+                        "Uses the highest screen refresh rate only while messages scroll. Never in "
+                                + "Battery Saver.", null));
             }
         }
 
@@ -237,6 +255,16 @@ final class LineSettingsScreen {
                 content.addView(toggle(activity, LineSettings.BLUR_BOTTOM_DARK_TINT, "Bottom blur dark tint",
                         "Darkens the blur behind the chat input and the gesture bar. Off uses a light tint "
                                 + "in light mode.", null));
+                content.addView(restart);
+            }
+            if (LineSettings.predictiveBackIncluded()) {
+                View restart = row(activity, "Restart LINE", "Applies your back gesture change now.", true);
+                restart.setVisibility(View.GONE);
+                restart.setOnClickListener(v -> restart(activity));
+                content.addView(toggle(activity, LineSettings.PREDICTIVE_BACK, "Predictive back",
+                        "Shows Android's back animation as you swipe back, on screens that allow it. "
+                                + "Android 14 and later. Off keeps the old back behavior.",
+                        () -> restart.setVisibility(View.VISIBLE)));
                 content.addView(restart);
             }
         }
