@@ -48,22 +48,22 @@ final class ProgressiveBlurDrawable extends Drawable {
      * fully gone, as measured from the mockups.
      */
     static final float TOP_FADE_DP = 145f;
-    /** Day saver: a nearly opaque white frost at the status edge. */
-    private static final int TOP_DAY_SAVER = 0xF8;
-    /** Day performance: a moderate black dim, never fully opaque. */
-    private static final int TOP_DAY_PERF = 0x60;
-    /** Night saver: a heavy black frost, short of a solid 0xF0 bar. */
-    private static final int TOP_NIGHT_SAVER = 0xC8;
-    /** Night performance: a slightly lighter black dim than night saver. */
-    private static final int TOP_NIGHT_PERF = 0x98;
-    /** Bottom day saver: nearly opaque white over the gesture bar. */
-    private static final int BOT_DAY_SAVER = 0xF0;
-    /** Bottom day performance: a medium black dim; the wallpaper still shows. */
-    private static final int BOT_DAY_PERF = 0x70;
-    /** Bottom night saver: a heavier black dim on the gesture bar. */
-    private static final int BOT_NIGHT_SAVER = 0xC0;
-    /** Bottom night performance: a medium-dark black dim. */
-    private static final int BOT_NIGHT_PERF = 0x80;
+    /**
+     * How far the bottom fade continues above the input bar, into the messages, so it ends
+     * clear above the input instead of at its top edge.
+     */
+    static final float BOTTOM_FADE_DP = 28f;
+    /** Battery Saver, day and night: a black fade with no blur, strong enough for white icons. */
+    private static final int TOP_SAVER = 0xC0;
+    private static final int BOT_SAVER = 0xD0;
+    /** Day performance: a white frost over the blur, with dark icons. */
+    private static final int TOP_DAY_PERF = 0xB8;
+    private static final int BOT_DAY_PERF = 0xC8;
+    /** Night performance: a black frost over the blur, with white icons. */
+    private static final int TOP_NIGHT_PERF = 0xA0;
+    private static final int BOT_NIGHT_PERF = 0xB0;
+    /** Samples of the eased fade. More stops give a smooth fall with no visible bands. */
+    private static final int FADE_STEPS = 10;
 
     /** True while a region records its content. Pieces draw nothing then. */
     static boolean recording;
@@ -125,6 +125,26 @@ final class ProgressiveBlurDrawable extends Drawable {
         Rect union = region.union();
         if (union.isEmpty()) return;
         host.getLocationInWindow(hostLocation);
+        if (region.bottom) {
+            int above = region.bottomFadeExtension(host.getContext());
+            int save = canvas.save();
+            canvas.clipRect(bounds);
+            canvas.translate(union.left - hostLocation[0], union.top - hostLocation[1]);
+            if (tail) {
+                // The tail sits just above the input and shows only the fade into the messages.
+                if (hostLocation[1] + bounds.bottom > union.top - above
+                        && hostLocation[1] + bounds.top < union.top) {
+                    region.drawBottomTail(canvas, union.width(), union.height(), above);
+                }
+            } else if (hostLocation[1] + bounds.top < union.bottom
+                    && hostLocation[1] + bounds.bottom > union.top) {
+                // A piece outside the region, such as the gesture bar strip under an open
+                // keyboard, draws nothing, so the content is not recorded for it.
+                region.draw(canvas, union.width(), union.height(), above);
+            }
+            canvas.restoreToCount(save);
+            return;
+        }
         int fade = region.topFadeExtension(host.getContext(), union.height());
         int fadeBottom = union.bottom + fade;
         if (tail) {
@@ -133,8 +153,6 @@ final class ProgressiveBlurDrawable extends Drawable {
                     || hostLocation[1] + bounds.top >= fadeBottom) return;
         } else if (hostLocation[1] + bounds.top >= fadeBottom
                 || hostLocation[1] + bounds.bottom <= union.top) {
-            // A piece outside the region, such as the gesture bar strip under an open keyboard,
-            // draws nothing, so the content is not recorded for it.
             return;
         }
         int save = canvas.save();
@@ -214,105 +232,108 @@ final class ProgressiveBlurDrawable extends Drawable {
             return Math.max(0, BlurBars.dp(context, TOP_FADE_DP) - Math.max(unionHeight, 0));
         }
 
+        /** Extra height of the bottom fade above the input bar. */
+        int bottomFadeExtension(android.content.Context context) {
+            return bottom ? BlurBars.dp(context, BOTTOM_FADE_DP) : 0;
+        }
+
+        /**
+         * Draws the region: the blur (performance mode only) and the tint. For the top region
+         * [fade] is how far the frost goes below the union; for the bottom region it is how far
+         * the fade goes above it (drawn by the tail, not here).
+         */
         void draw(Canvas canvas, int width, int height, int fade) {
             boolean saver = BlurBars.powerSave();
-            int drawnHeight = height + Math.max(fade, 0);
-            boolean blurred = false;
             if (!saver && Build.VERSION.SDK_INT >= 31 && canvas.isHardwareAccelerated()) {
                 if (gpu == null) gpu = new Gpu();
-                blurred = ((Gpu) gpu).draw(this, canvas, width, drawnHeight);
+                int drawnHeight = bottom ? height : height + Math.max(fade, 0);
+                ((Gpu) gpu).draw(this, canvas, width, drawnHeight);
             }
             if (bottom) {
-                drawBottomTint(canvas, width, height, saver, blurred);
+                prepareBottomTint(width, height, fade, saver);
+                canvas.drawRect(0, 0, width, height, tint);
             } else {
-                drawTopTint(canvas, width, height, fade, saver, blurred);
+                drawTopTint(canvas, width, height, fade, saver);
             }
         }
 
-        private boolean night() {
-            if (pieces.length == 0 || pieces[0] == null) return false;
-            return BlurBars.night(pieces[0]);
+        /** The part of the bottom fade above the input bar, from -[above] to 0. No blur. */
+        void drawBottomTail(Canvas canvas, int width, int height, int above) {
+            if (above <= 0) return;
+            prepareBottomTint(width, height, above, BlurBars.powerSave());
+            canvas.drawRect(0, -above, width, 0, tint);
+        }
+
+        /** White frost with dark icons only in day performance; black in the other three. */
+        private int tintRgb() {
+            if (pieces.length == 0 || pieces[0] == null) return Color.BLACK;
+            return BlurBars.lightChrome(pieces[0]) ? Color.WHITE : Color.BLACK;
+        }
+
+        private int edgeAlpha(boolean saver, int rgb, int saverAlpha, int dayPerf, int nightPerf) {
+            if (saver) return saverAlpha;
+            return rgb == Color.WHITE ? dayPerf : nightPerf;
         }
 
         /**
          * A frost from the status bar through the title and into the first messages, gone at
-         * [TOP_FADE_DP] from the top. Day saver is white; the other three states are a black dim.
-         * There is no solid title bar.
+         * [TOP_FADE_DP] from the top. It holds over the status bar, then eases out. There is no
+         * solid title bar.
          */
-        private void drawTopTint(Canvas canvas, int width, int height, int fade, boolean saver, boolean blurred) {
+        private void drawTopTint(Canvas canvas, int width, int height, int fade, boolean saver) {
             int extended = height + Math.max(fade, 0);
             if (width <= 0 || extended <= 0) return;
-            boolean night = night();
-            int rgb = (!night && saver) ? Color.WHITE : Color.BLACK;
-            int edgeAlpha;
-            if (night) {
-                edgeAlpha = saver ? TOP_NIGHT_SAVER : TOP_NIGHT_PERF;
-            } else {
-                edgeAlpha = saver ? TOP_DAY_SAVER : TOP_DAY_PERF;
-            }
-            int key = (rgb & 0x00FFFFFF) | (edgeAlpha << 24) | ((saver ? 1 : 0) << 16);
+            int rgb = tintRgb();
+            int edgeAlpha = edgeAlpha(saver, rgb, TOP_SAVER, TOP_DAY_PERF, TOP_NIGHT_PERF);
+            int key = (rgb & 0x00FFFFFF) ^ (edgeAlpha << 24) ^ (saver ? 0x10000 : 0);
             if (extended != tintHeight || key != tintKey) {
                 tintHeight = extended;
                 tintKey = key;
-                int edge = (edgeAlpha << 24) | (rgb & 0x00FFFFFF);
-                int mid = ((edgeAlpha * 5 / 8) << 24) | (rgb & 0x00FFFFFF);
-                int soft = ((edgeAlpha * 2 / 5) << 24) | (rgb & 0x00FFFFFF);
-                int clear = rgb & 0x00FFFFFF;
-                // The first ~16 dp stay close to the edge alpha (status bar), the title is still
-                // frosted, and the rest falls to clear at 145 dp.
-                // ~16 dp / 145 dp at the status edge, title around 55% of the fade.
-                float status = 0.11f;
-                float title = 0.55f;
-                tint.setShader(new LinearGradient(0, 0, 0, extended,
-                        new int[] {edge, edge, mid, soft, clear},
-                        new float[] {0f, status, title * 0.7f, title, 1f}, Shader.TileMode.CLAMP));
+                // ~16 dp of 145 dp hold the edge alpha over the status bar.
+                setFade(0, extended, 0.11f, rgb, edgeAlpha);
             }
             canvas.drawRect(0, 0, width, extended, tint);
         }
 
         /**
-         * Strongest at the gesture bar, then fading up through the input row, clear at the top
-         * of the input. Messages above the input are not washed. Day saver is white; the other
-         * three states are a black dim.
+         * Strongest (solid) over the gesture bar, then easing out up through the input row and
+         * [above] past it, so it is clear just above the input. Messages above are not washed.
          */
-        private void drawBottomTint(Canvas canvas, int width, int height, boolean saver, boolean blurred) {
+        private void prepareBottomTint(int width, int height, int above, boolean saver) {
             if (width <= 0 || height <= 0) return;
             int solid = Math.min(Math.max(gestureBarHeight(), 0), height);
-            boolean night = night();
-            int rgb = (!night && saver) ? Color.WHITE : Color.BLACK;
-            int edgeAlpha;
-            if (night) {
-                edgeAlpha = saver ? BOT_NIGHT_SAVER : BOT_NIGHT_PERF;
-            } else {
-                edgeAlpha = saver ? BOT_DAY_SAVER : BOT_DAY_PERF;
-            }
-            int key = (rgb & 0x00FFFFFF) | (edgeAlpha << 24) | (solid << 8) | (saver ? 1 : 0);
-            if (height != tintHeight || key != tintKey) {
-                tintHeight = height;
+            int rgb = tintRgb();
+            int edgeAlpha = edgeAlpha(saver, rgb, BOT_SAVER, BOT_DAY_PERF, BOT_NIGHT_PERF);
+            int key = (rgb & 0x00FFFFFF) ^ (edgeAlpha << 24) ^ (solid << 8) ^ (above << 20) ^ (saver ? 1 : 0);
+            int total = height + Math.max(above, 0);
+            if (total != tintHeight || key != tintKey) {
+                tintHeight = total;
                 tintKey = key;
-                int edge = (edgeAlpha << 24) | (rgb & 0x00FFFFFF);
-                int light = ((edgeAlpha * 1 / 3) << 24) | (rgb & 0x00FFFFFF);
-                int clear = rgb & 0x00FFFFFF;
-                if (solid >= height) {
-                    tint.setShader(null);
-                    tint.setColor(edge);
-                } else if (solid <= 0) {
-                    tint.setColor(0);
-                    tint.setShader(new LinearGradient(0, height, 0, 0,
-                            new int[] {edge, light, clear},
-                            new float[] {0f, 0.3f, 1f}, Shader.TileMode.CLAMP));
-                } else {
-                    tint.setColor(0);
-                    float solidUntil = solid / (float) height;
-                    float early = (solid + (height - solid) * 0.3f) / (float) height;
-                    if (early <= solidUntil + 0.02f) early = Math.min(1f, solidUntil + 0.08f);
-                    if (early >= 0.999f) early = (solidUntil + 1f) * 0.5f;
-                    tint.setShader(new LinearGradient(0, height, 0, 0,
-                            new int[] {edge, edge, light, clear},
-                            new float[] {0f, solidUntil, early, 1f}, Shader.TileMode.CLAMP));
-                }
+                setFade(height, -Math.max(above, 0), solid / (float) total, rgb, edgeAlpha);
             }
-            canvas.drawRect(0, 0, width, height, tint);
+        }
+
+        /**
+         * Sets [tint] to a fade from [from] (edge alpha) to [to] (clear), holding the edge alpha
+         * for the first [hold] of the way, then easing out along a cosine so it has no hard
+         * start or end. The paint's own alpha stays 255: a paint with a shader still multiplies
+         * by it, and a zero alpha would hide the whole gradient.
+         */
+        private void setFade(float from, float to, float hold, int rgb, int edgeAlpha) {
+            hold = Math.max(0f, Math.min(hold, 0.95f));
+            int[] colors = new int[FADE_STEPS + 2];
+            float[] positions = new float[FADE_STEPS + 2];
+            int base = rgb & 0x00FFFFFF;
+            colors[0] = (edgeAlpha << 24) | base;
+            positions[0] = 0f;
+            for (int i = 0; i <= FADE_STEPS; i++) {
+                float u = i / (float) FADE_STEPS;
+                float a = edgeAlpha * (0.5f + 0.5f * (float) Math.cos(Math.PI * u));
+                colors[i + 1] = (Math.round(a) << 24) | base;
+                positions[i + 1] = hold + (1f - hold) * u;
+            }
+            tint.setColor(Color.BLACK);
+            tint.setShader(new LinearGradient(0, from, 0, to, colors, positions, Shader.TileMode.CLAMP));
         }
 
         /** Height of the gesture bar strip at the bottom of this region, or 0 if it is not in it. */

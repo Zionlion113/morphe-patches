@@ -66,14 +66,23 @@ final class ChatPanels {
             clearSolidBackgrounds(panel, state);
         }
         FrostDrawable frost;
+        boolean fresh = false;
         if (container.getBackground() instanceof FrostDrawable) {
             frost = (FrostDrawable) container.getBackground();
         } else {
             frost = new FrostDrawable(container);
             container.setBackground(frost);
+            fresh = true;
         }
-        frost.sources = new View[] {skin, content};
-        container.invalidate();
+        if (frost.sources == null || frost.sources.length != 2 || frost.sources[0] != skin
+                || frost.sources[1] != content) {
+            frost.sources = new View[] {skin, content};
+            fresh = true;
+        }
+        // Redraw the frost only when what is behind it changed, not before every frame, so an
+        // open panel does not keep the screen drawing.
+        boolean behindChanged = (skin != null && skin.isDirty()) || (content != null && content.isDirty());
+        if (fresh || behindChanged) container.invalidate();
     }
 
     /** A child of the keyboard container that is a real panel, not the IME height placeholder. */
@@ -208,7 +217,8 @@ final class ChatPanels {
                         fill.setShader(null);
                         fill.setColor(color);
                     } else {
-                        fill.setColor(0);
+                        // Opaque paint alpha: a shader is multiplied by it, so 0 hid the panel.
+                        fill.setColor(Color.BLACK);
                         int clear = color & 0x00FFFFFF;
                         float until = fade / (float) bounds.height();
                         fill.setShader(new LinearGradient(0, bounds.top, 0, bounds.top + fade,

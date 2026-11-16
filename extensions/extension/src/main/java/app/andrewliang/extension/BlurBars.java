@@ -55,7 +55,10 @@ import java.util.WeakHashMap;
  * </ul>
  * The top bars of Compose screens are changed by the patch itself.
  *
- * <p>The chat header and the input bar follow a four-state frost (system dark mode crossed with Battery Saver). That look, and the icon colors that go with it, change at once, with no restart.
+ * <p>The chat header and the input bar follow a four-state frost (system dark mode crossed with
+ * Battery Saver). Battery Saver, day and night: a black fade with no blur and white icons. Day
+ * performance: a white frost over the blur with dark icons. Night performance: a black frost over
+ * the blur with white icons. That look, and the icon colors, change at once, with no restart.
  *
  * <p>All views are found by resource name, because the ids change between LINE versions. A view
  * that this LINE version does not have is skipped.
@@ -93,13 +96,20 @@ public final class BlurBars {
     private static final String CHAT_INPUT_PILL = "chat_ui_message_container";
     private static final String CHAT_INPUT_PILL_BG = "chat_ui_message_edit_text_background";
 
-    /** Fill of the input capsule, as measured from the mockups, in every theme. */
+    /** Fill of the input capsule on the white day frost (day performance), as in the mockups. */
     private static final int INPUT_PILL_FILL = 0xFFF5F5F5;
+    /** Fill of the input capsule on the black frost (Battery Saver, night): a smoky glass. */
+    private static final int INPUT_PILL_FILL_DARK = 0xB3262626;
     private static final int ICON_DAY = 0xFF111111;
     private static final int ICON_EMOJI_DAY = 0xFF7B7B7B;
     private static final int ICON_NIGHT = 0xFFFFFFFF;
-    private static final int HEADER_ICON_DAY_SAVER = 0xFF000000;
+    private static final int HEADER_ICON_DARK = 0xFF111111;
     private static final int HEADER_ICON_LIGHT = 0xFFFEFEFE;
+    private static final int INPUT_TEXT_DAY = 0xFF111111;
+    private static final int INPUT_HINT_DAY = 0xFF8A8A8A;
+    private static final int INPUT_TEXT_DARK = 0xFFFFFFFF;
+    private static final int INPUT_HINT_DARK = 0x99FFFFFF;
+    private static final String INPUT_EDIT = "chat_ui_message_edit";
 
     private static final String[] INPUT_DARK_ICONS = {
             "chathistory_attach_button",
@@ -439,6 +449,14 @@ public final class BlurBars {
                 & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
     }
 
+    /**
+     * True only in day performance mode: a white frost with dark icons. Battery Saver (day and
+     * night) and night performance use a black frost with white icons.
+     */
+    static boolean lightChrome(View view) {
+        return !night(view) && !powerSave();
+    }
+
     private static void watchConfiguration(Application application) {
         application.registerComponentCallbacks(new ComponentCallbacks() {
             @Override
@@ -671,6 +689,7 @@ public final class BlurBars {
         final ProgressiveBlurDrawable.Region bottom;
         final ProgressiveBlurDrawable headerBlur;
         final ProgressiveBlurDrawable topFade;
+        final ProgressiveBlurDrawable bottomFade;
         final ProgressiveBlurDrawable inputBlur;
         final ProgressiveBlurDrawable spacerBlur;
 
@@ -702,6 +721,7 @@ public final class BlurBars {
                     new View[] {skin, refresh});
             headerBlur = new ProgressiveBlurDrawable(header, top);
             topFade = new ProgressiveBlurDrawable(content, top, true);
+            bottomFade = new ProgressiveBlurDrawable(content, bottom, true);
             inputBlur = input == null ? null : new ProgressiveBlurDrawable(input, bottom);
             spacerBlur = spacer == null ? null : new ProgressiveBlurDrawable(spacer, bottom);
         }
@@ -725,6 +745,7 @@ public final class BlurBars {
         private void applyBackgrounds() {
             if (header.getBackground() != headerBlur) header.setBackground(headerBlur);
             layoutTopFade();
+            layoutBottomFade();
             if (input != null) {
                 if (input.getBackground() != inputBlur) input.setBackground(inputBlur);
                 // The row of the input box. The box and the buttons in it stay.
@@ -748,9 +769,33 @@ public final class BlurBars {
                 content.getOverlay().remove(topFade);
                 return;
             }
-            topFade.setBounds(0, 0, content.getWidth(), fade);
+            setOverlayBounds(topFade, 0, 0, content.getWidth(), fade);
             // ViewOverlay.add is a no-op when the drawable is already there.
             content.getOverlay().add(topFade);
+        }
+
+        /** The part of the bottom fade that continues above the input bar, into the messages. */
+        private void layoutBottomFade() {
+            int above = dp(content.getContext(), ProgressiveBlurDrawable.BOTTOM_FADE_DP);
+            if (input == null || !input.isShown() || input.getHeight() == 0 || content.getWidth() <= 0
+                    || above <= 0) {
+                content.getOverlay().remove(bottomFade);
+                return;
+            }
+            int[] location = new int[2];
+            input.getLocationInWindow(location);
+            int inputTop = location[1];
+            content.getLocationInWindow(location);
+            int top = inputTop - location[1];
+            setOverlayBounds(bottomFade, 0, top - above, content.getWidth(), top);
+            content.getOverlay().add(bottomFade);
+        }
+
+        private void setOverlayBounds(ProgressiveBlurDrawable drawable, int l, int t, int r, int b) {
+            android.graphics.Rect bounds = drawable.getBounds();
+            if (bounds.left == l && bounds.top == t && bounds.right == r && bounds.bottom == b) return;
+            drawable.setBounds(l, t, r, b);
+            drawable.invalidateSelf();
         }
 
         void onPreDraw() {
@@ -767,11 +812,11 @@ public final class BlurBars {
         }
 
         /**
-         * Dark status and navigation icons only in day + Battery Saver (white frost, dark handle).
-         * The other three states use a dark dim, so the icons and the gesture handle stay light.
+         * Dark status and navigation icons only in day performance (white frost, dark handle).
+         * The other three states use a black frost, so the icons and the gesture handle are white.
          */
         private void lightIcons() {
-            boolean light = !night(header) && powerSave();
+            boolean light = lightChrome(header);
             if (Build.VERSION.SDK_INT >= 30) {
                 WindowInsetsController controller = decor.getWindowInsetsController();
                 if (controller == null) return;
@@ -896,7 +941,17 @@ public final class BlurBars {
         if (container != null) roundClip(container);
         if (background != null) {
             roundClip(background);
-            fillPill(background);
+            fillPill(background, lightChrome(input) ? INPUT_PILL_FILL : INPUT_PILL_FILL_DARK);
+        }
+        View edit = find(input, INPUT_EDIT);
+        if (edit instanceof TextView) {
+            boolean light = lightChrome(input);
+            TextView text = (TextView) edit;
+            int color = light ? INPUT_TEXT_DAY : INPUT_TEXT_DARK;
+            int hint = light ? INPUT_HINT_DAY : INPUT_HINT_DARK;
+            // setTextColor only redraws when the color changes, but skip the allocation anyway.
+            if (text.getCurrentTextColor() != color) text.setTextColor(color);
+            if (text.getCurrentHintTextColor() != hint) text.setHintTextColor(hint);
         }
     }
 
@@ -907,30 +962,40 @@ public final class BlurBars {
         if (!view.getClipToOutline()) view.setClipToOutline(true);
     }
 
-    private static void fillPill(View view) {
-        // Hide LINE's 9-patch stroke if this is the overwrapping image view.
-        try {
-            view.getClass().getMethod("setOverwrappingDrawable", Drawable.class)
-                    .invoke(view, new Object[] {null});
-        } catch (Throwable ignored) {}
+    private static void fillPill(View view, int fill) {
+        // Hide LINE's 9-patch stroke if this is the overwrapping image view. Once per view.
+        if (STROKE_CLEARED.put(view, Boolean.TRUE) == null) {
+            try {
+                view.getClass().getMethod("setOverwrappingDrawable", Drawable.class)
+                        .invoke(view, new Object[] {null});
+            } catch (Throwable ignored) {}
+        }
         if (view instanceof ImageView) {
             ImageView image = (ImageView) view;
-            ColorStateList tint = ColorStateList.valueOf(INPUT_PILL_FILL);
-            if (image.getImageTintList() == null || image.getImageTintList().getDefaultColor() != INPUT_PILL_FILL) {
-                image.setImageTintList(tint);
+            ColorStateList current = image.getImageTintList();
+            if (current == null || current.getDefaultColor() != fill) {
+                image.setImageTintList(ColorStateList.valueOf(fill));
                 image.setImageTintMode(PorterDuff.Mode.SRC_IN);
             }
         }
         Drawable background = view.getBackground();
         if (background instanceof GradientDrawable) {
-            ((GradientDrawable) background).setColor(INPUT_PILL_FILL);
+            GradientDrawable gradient = (GradientDrawable) background;
+            ColorStateList current = Build.VERSION.SDK_INT >= 24 ? gradient.getColor() : null;
+            if (current == null || current.getDefaultColor() != fill) gradient.setColor(fill);
         }
     }
 
+    /** Pill views whose overwrapping stroke is already removed. */
+    private static final Map<View, Boolean> STROKE_CLEARED = new WeakHashMap<>();
+
+    /** The tint each icon was given, so it is set again only when it or LINE changes it. */
+    private static final Map<View, Integer> TINTED = new WeakHashMap<>();
+
     private static void tintInputIcons(View input) {
-        boolean night = night(input);
-        int dark = night ? ICON_NIGHT : ICON_DAY;
-        int emoji = night ? ICON_NIGHT : ICON_EMOJI_DAY;
+        boolean light = lightChrome(input);
+        int dark = light ? ICON_DAY : ICON_NIGHT;
+        int emoji = light ? ICON_EMOJI_DAY : ICON_NIGHT;
         for (String name : INPUT_DARK_ICONS) tintImage(find(input, name), dark);
         for (String name : INPUT_EMOJI_ICONS) tintImage(find(input, name), emoji);
         // The send button shares this ImageView with the mic. Tint a monochrome mic glyph, but
@@ -946,6 +1011,7 @@ public final class BlurBars {
             // The green disc is in the src, or there is no glyph yet: do not tint the view.
             if (image.getImageTintList() != null) image.setImageTintList(null);
             if (image.getColorFilter() != null) image.clearColorFilter();
+            TINTED.remove(image);
             return;
         }
         // A background disc is left as it is; only the src glyph is tinted.
@@ -970,11 +1036,12 @@ public final class BlurBars {
     }
 
     private static void tintHeader(View header) {
-        boolean light = night(header) || !powerSave();
-        int color = light ? HEADER_ICON_LIGHT : HEADER_ICON_DAY_SAVER;
+        int color = lightChrome(header) ? HEADER_ICON_DARK : HEADER_ICON_LIGHT;
         for (String name : HEADER_TEXT) {
             View view = find(header, name);
-            if (view instanceof TextView) ((TextView) view).setTextColor(color);
+            if (view instanceof TextView && ((TextView) view).getCurrentTextColor() != color) {
+                ((TextView) view).setTextColor(color);
+            }
         }
         for (String name : HEADER_ICONS) tintImage(find(header, name), color);
         // Action buttons on the right of the title. Skip the avatar.
@@ -996,9 +1063,17 @@ public final class BlurBars {
     private static void tintImage(View view, int color) {
         if (!(view instanceof ImageView)) return;
         ImageView image = (ImageView) view;
-        ColorStateList tint = ColorStateList.valueOf(color);
-        image.setImageTintList(tint);
+        // Each call would redraw the icon, and this runs before every frame. Set the tint only
+        // when it is new or LINE has replaced it, so an idle chat stops drawing frames.
+        Integer done = TINTED.get(image);
+        ColorStateList current = image.getImageTintList();
+        if (done != null && done == color && image.getColorFilter() != null
+                && current != null && current.getDefaultColor() == color) {
+            return;
+        }
+        image.setImageTintList(ColorStateList.valueOf(color));
         image.setColorFilter(color, PorterDuff.Mode.SRC_IN);
+        TINTED.put(image, color);
     }
 
     private static final class PillOutline extends ViewOutlineProvider {
