@@ -200,7 +200,7 @@ final class ChatPanels {
             Rect bounds = getBounds();
             if (bounds.isEmpty()) return;
             boolean saver = BlurBars.powerSave();
-            boolean night = BlurBars.night(host);
+            boolean night = BlurBars.chromeNight(host);
             if (!saver && Build.VERSION.SDK_INT >= 31 && canvas.isHardwareAccelerated()) {
                 if (gpu == null) gpu = new Gpu();
                 ((Gpu) gpu).draw(this, canvas, bounds);

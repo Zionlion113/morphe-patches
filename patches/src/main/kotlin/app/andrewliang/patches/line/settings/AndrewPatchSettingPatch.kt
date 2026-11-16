@@ -69,6 +69,20 @@ private val andrewPatchSettingResourcePatch = resourcePatch {
                 },
             )
         }
+        // Chinese locales get the row title in Traditional Chinese, like the settings screen.
+        for (folder in listOf("values-zh-rTW", "values-zh-rHK", "values-zh-rCN", "values-zh")) {
+            val path = "res/$folder/strings.xml"
+            if (!get(path).exists()) continue
+            document(path).use { document ->
+                val resources = document.getElementsByTagName("resources").item(0) as Element
+                resources.appendChild(
+                    document.createElement("string").apply {
+                        setAttribute("name", "andrew_patch_settings")
+                        textContent = "Andrew 修補程式設定"
+                    },
+                )
+            }
+        }
     }
 }
 

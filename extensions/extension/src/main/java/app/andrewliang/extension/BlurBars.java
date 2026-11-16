@@ -98,8 +98,8 @@ public final class BlurBars {
 
     /** Fill of the input capsule on the white day frost (day performance), as in the mockups. */
     private static final int INPUT_PILL_FILL = 0xFFF5F5F5;
-    /** Fill of the input capsule on the black frost (Battery Saver, night): a smoky glass. */
-    private static final int INPUT_PILL_FILL_DARK = 0xB3262626;
+    /** Fill of the input capsule on the black frost (Battery Saver, night). Opaque. */
+    private static final int INPUT_PILL_FILL_DARK = 0xFF262626;
     private static final int ICON_DAY = 0xFF111111;
     private static final int ICON_EMOJI_DAY = 0xFF7B7B7B;
     private static final int ICON_NIGHT = 0xFFFFFFFF;
@@ -450,11 +450,14 @@ public final class BlurBars {
     }
 
     /**
-     * True only in day performance mode: a white frost with dark icons. Battery Saver (day and
-     * night) and night performance use a black frost with white icons.
+     * Day or night for the chat chrome only (blur, fades, icons and panels), not LINE's theme:
+     * the "Blur day/night" setting, or the system dark mode when it follows the system.
      */
-    static boolean lightChrome(View view) {
-        return !night(view) && !powerSave();
+    static boolean chromeNight(View view) {
+        int mode = LineSettings.blurDayNight();
+        if (mode == LineSettings.DAY_NIGHT_DAY) return false;
+        if (mode == LineSettings.DAY_NIGHT_NIGHT) return true;
+        return night(view);
     }
 
     private static void watchConfiguration(Application application) {
@@ -692,6 +695,11 @@ public final class BlurBars {
         final ProgressiveBlurDrawable bottomFade;
         final ProgressiveBlurDrawable inputBlur;
         final ProgressiveBlurDrawable spacerBlur;
+        /** The chrome colors, shared by both regions and the icon tints. */
+        final ChromeStyle style = new ChromeStyle();
+        /** The background image's colors, for "Auto color". */
+        final SkinPalette palette = new SkinPalette();
+        private final Runnable onSampled;
 
         /** How far the list was moved up, and down. */
         int extendedTop;
@@ -719,6 +727,11 @@ public final class BlurBars {
             // The input bar is not drawn into its own blur, so the list is the bottom source.
             bottom = new ProgressiveBlurDrawable.Region(true, new View[] {input, spacer},
                     new View[] {skin, refresh});
+            top.style = style;
+            bottom.style = style;
+            onSampled = () -> {
+                if (header.isAttachedToWindow()) header.invalidate();
+            };
             headerBlur = new ProgressiveBlurDrawable(header, top);
             topFade = new ProgressiveBlurDrawable(content, top, true);
             bottomFade = new ProgressiveBlurDrawable(content, bottom, true);
@@ -733,8 +746,17 @@ public final class BlurBars {
                 if (id != 0) hide(header.findViewById(id));
             }
             if (skin != null) prepareChatSkin(skin);
+            updateStyle();
             applyBackgrounds();
             extendList();
+        }
+
+        /** Works out the chrome colors, sampling the background again when it changed. */
+        private void updateStyle() {
+            if (LineSettings.blurAutoColor() && skin != null) {
+                palette.check(skin, hasCoveringArtwork(skin), onSampled);
+            }
+            if (style.update(header, palette)) redraw();
         }
 
         void redraw() {
@@ -751,14 +773,14 @@ public final class BlurBars {
                 // The row of the input box. The box and the buttons in it stay.
                 View row = find(input, CHAT_INPUT_ROW);
                 if (row != null && row.getBackground() != null) row.setBackground(null);
-                smoothInputPill(input);
-                tintInputIcons(input);
+                smoothInputPill(input, style);
+                tintInputIcons(input, style);
             }
             if (spacer != null) {
                 if (spacer.getVisibility() == View.INVISIBLE) spacer.setVisibility(View.VISIBLE);
                 if (spacer.getBackground() != spacerBlur) spacer.setBackground(spacerBlur);
             }
-            tintHeader(header);
+            tintHeader(header, style);
             ChatPanels.apply(decor, skin, content);
         }
 
@@ -800,6 +822,7 @@ public final class BlurBars {
 
         void onPreDraw() {
             if (skin != null) prepareChatSkin(skin);
+            updateStyle();
             if (header != null) unclipAncestors(header);
             if (input != null) unclipAncestors(input);
             if (spacer != null) unclipAncestors(spacer);
@@ -812,25 +835,28 @@ public final class BlurBars {
         }
 
         /**
-         * Dark status and navigation icons only in day performance (white frost, dark handle).
-         * The other three states use a black frost, so the icons and the gesture handle are white.
+         * Dark status icons on a light top chrome, and a dark gesture handle on a light bottom
+         * chrome; white otherwise. Each edge is judged on its own (they differ with Auto color).
          */
         private void lightIcons() {
-            boolean light = lightChrome(header);
+            boolean lightTop = style.topDarkIcons;
+            boolean lightBottom = style.bottomDarkIcons;
             if (Build.VERSION.SDK_INT >= 30) {
                 WindowInsetsController controller = decor.getWindowInsetsController();
                 if (controller == null) return;
                 int mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
                         | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
-                int value = light ? mask : 0;
+                int value = (lightTop ? WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS : 0)
+                        | (lightBottom ? WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS : 0);
                 if ((controller.getSystemBarsAppearance() & mask) != value) {
                     controller.setSystemBarsAppearance(value, mask);
                 }
             } else {
                 int flags = decor.getSystemUiVisibility();
-                int mask = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-                        | (Build.VERSION.SDK_INT >= 26 ? View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR : 0);
-                int next = light ? (flags | mask) : (flags & ~mask);
+                int next = lightTop ? (flags | View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR)
+                        : (flags & ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+                next = lightBottom ? (next | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR)
+                        : (next & ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
                 if (next != flags) decor.setSystemUiVisibility(next);
             }
         }
@@ -935,17 +961,18 @@ public final class BlurBars {
      * Clips the input box to a stadium (radius = height / 2, updated on layout) and paints the
      * measured #F5F5F5 fill with no border.
      */
-    private static void smoothInputPill(View input) {
+    private static void smoothInputPill(View input, ChromeStyle style) {
         View container = find(input, CHAT_INPUT_PILL);
         View background = find(input, CHAT_INPUT_PILL_BG);
         if (container != null) roundClip(container);
         if (background != null) {
             roundClip(background);
-            fillPill(background, lightChrome(input) ? INPUT_PILL_FILL : INPUT_PILL_FILL_DARK);
+            fillPill(background, style.bottomDarkIcons ? INPUT_PILL_FILL : INPUT_PILL_FILL_DARK);
         }
+        if (container != null) centerEmojiButton(container);
         View edit = find(input, INPUT_EDIT);
         if (edit instanceof TextView) {
-            boolean light = lightChrome(input);
+            boolean light = style.bottomDarkIcons;
             TextView text = (TextView) edit;
             int color = light ? INPUT_TEXT_DAY : INPUT_TEXT_DARK;
             int hint = light ? INPUT_HINT_DAY : INPUT_HINT_DARK;
@@ -992,8 +1019,8 @@ public final class BlurBars {
     /** The tint each icon was given, so it is set again only when it or LINE changes it. */
     private static final Map<View, Integer> TINTED = new WeakHashMap<>();
 
-    private static void tintInputIcons(View input) {
-        boolean light = lightChrome(input);
+    private static void tintInputIcons(View input, ChromeStyle style) {
+        boolean light = style.bottomDarkIcons;
         int dark = light ? ICON_DAY : ICON_NIGHT;
         int emoji = light ? ICON_EMOJI_DAY : ICON_NIGHT;
         for (String name : INPUT_DARK_ICONS) tintImage(find(input, name), dark);
@@ -1035,8 +1062,8 @@ public final class BlurBars {
         return false;
     }
 
-    private static void tintHeader(View header) {
-        int color = lightChrome(header) ? HEADER_ICON_DARK : HEADER_ICON_LIGHT;
+    private static void tintHeader(View header, ChromeStyle style) {
+        int color = style.topDarkIcons ? HEADER_ICON_DARK : HEADER_ICON_LIGHT;
         for (String name : HEADER_TEXT) {
             View view = find(header, name);
             if (view instanceof TextView && ((TextView) view).getCurrentTextColor() != color) {
@@ -1074,6 +1101,31 @@ public final class BlurBars {
         image.setImageTintList(ColorStateList.valueOf(color));
         image.setColorFilter(color, PorterDuff.Mode.SRC_IN);
         TINTED.put(image, color);
+    }
+
+    /**
+     * LINE pins the emoji button to the bottom end of the input box, 1 dp in. On a taller box
+     * (larger font, more lines) it sits low. It is moved with a translation, which needs no
+     * layout pass: centered from top to bottom, and its center on the center of the round end
+     * of a one-line box, so it stays in the same place at the end as the box grows.
+     */
+    private static void centerEmojiButton(View container) {
+        View button = find(container, INPUT_EMOJI_ICONS[0]);
+        if (button == null) button = find(container, INPUT_EMOJI_ICONS[1]);
+        if (button == null || !(button.getParent() instanceof View)) return;
+        View frame = (View) button.getParent();
+        if (frame == container || frame.getParent() != container) return;
+        int width = container.getWidth();
+        int height = container.getHeight();
+        if (width <= 0 || height <= 0 || frame.getWidth() <= 0 || frame.getHeight() <= 0) return;
+        // A one-line box is about 38 dp tall; its round end is centered half that from the end.
+        float cap = Math.min(height, dp(container.getContext(), 38f)) / 2f;
+        float centerX = width - cap;
+        float centerY = height / 2f;
+        float dx = Math.round(centerX - (frame.getLeft() + frame.getWidth() / 2f));
+        float dy = Math.round(centerY - (frame.getTop() + frame.getHeight() / 2f));
+        if (frame.getTranslationX() != dx) frame.setTranslationX(dx);
+        if (frame.getTranslationY() != dy) frame.setTranslationY(dy);
     }
 
     private static final class PillOutline extends ViewOutlineProvider {

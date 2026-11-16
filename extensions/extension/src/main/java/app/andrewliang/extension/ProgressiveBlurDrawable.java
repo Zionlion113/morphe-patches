@@ -53,15 +53,6 @@ final class ProgressiveBlurDrawable extends Drawable {
      * clear above the input instead of at its top edge.
      */
     static final float BOTTOM_FADE_DP = 28f;
-    /** Battery Saver, day and night: a black fade with no blur, strong enough for white icons. */
-    private static final int TOP_SAVER = 0xC0;
-    private static final int BOT_SAVER = 0xD0;
-    /** Day performance: a white frost over the blur, with dark icons. */
-    private static final int TOP_DAY_PERF = 0xB8;
-    private static final int BOT_DAY_PERF = 0xC8;
-    /** Night performance: a black frost over the blur, with white icons. */
-    private static final int TOP_NIGHT_PERF = 0xA0;
-    private static final int BOT_NIGHT_PERF = 0xB0;
     /** Samples of the eased fade. More stops give a smooth fall with no visible bands. */
     private static final int FADE_STEPS = 10;
 
@@ -188,6 +179,9 @@ final class ProgressiveBlurDrawable extends Drawable {
         private Object gpu;
         private int tintHeight = -1;
         private int tintKey = -1;
+        private int tintRgbKey = -1;
+        /** The colors to use, owned and updated by the chat screen. */
+        ChromeStyle style = new ChromeStyle();
 
         /**
          * @param bottom true for the bottom edge
@@ -264,17 +258,6 @@ final class ProgressiveBlurDrawable extends Drawable {
             canvas.drawRect(0, -above, width, 0, tint);
         }
 
-        /** White frost with dark icons only in day performance; black in the other three. */
-        private int tintRgb() {
-            if (pieces.length == 0 || pieces[0] == null) return Color.BLACK;
-            return BlurBars.lightChrome(pieces[0]) ? Color.WHITE : Color.BLACK;
-        }
-
-        private int edgeAlpha(boolean saver, int rgb, int saverAlpha, int dayPerf, int nightPerf) {
-            if (saver) return saverAlpha;
-            return rgb == Color.WHITE ? dayPerf : nightPerf;
-        }
-
         /**
          * A frost from the status bar through the title and into the first messages, gone at
          * [TOP_FADE_DP] from the top. It holds over the status bar, then eases out. There is no
@@ -283,12 +266,13 @@ final class ProgressiveBlurDrawable extends Drawable {
         private void drawTopTint(Canvas canvas, int width, int height, int fade, boolean saver) {
             int extended = height + Math.max(fade, 0);
             if (width <= 0 || extended <= 0) return;
-            int rgb = tintRgb();
-            int edgeAlpha = edgeAlpha(saver, rgb, TOP_SAVER, TOP_DAY_PERF, TOP_NIGHT_PERF);
-            int key = (rgb & 0x00FFFFFF) ^ (edgeAlpha << 24) ^ (saver ? 0x10000 : 0);
-            if (extended != tintHeight || key != tintKey) {
+            int rgb = style.topRgb;
+            int edgeAlpha = style.topAlpha;
+            int key = edgeAlpha;
+            if (extended != tintHeight || key != tintKey || rgb != tintRgbKey) {
                 tintHeight = extended;
                 tintKey = key;
+                tintRgbKey = rgb;
                 // ~16 dp of 145 dp hold the edge alpha over the status bar.
                 setFade(0, extended, 0.11f, rgb, edgeAlpha);
             }
@@ -302,13 +286,14 @@ final class ProgressiveBlurDrawable extends Drawable {
         private void prepareBottomTint(int width, int height, int above, boolean saver) {
             if (width <= 0 || height <= 0) return;
             int solid = Math.min(Math.max(gestureBarHeight(), 0), height);
-            int rgb = tintRgb();
-            int edgeAlpha = edgeAlpha(saver, rgb, BOT_SAVER, BOT_DAY_PERF, BOT_NIGHT_PERF);
-            int key = (rgb & 0x00FFFFFF) ^ (edgeAlpha << 24) ^ (solid << 8) ^ (above << 20) ^ (saver ? 1 : 0);
+            int rgb = style.bottomRgb;
+            int edgeAlpha = style.bottomAlpha;
+            int key = edgeAlpha | (solid << 8);
             int total = height + Math.max(above, 0);
-            if (total != tintHeight || key != tintKey) {
+            if (total != tintHeight || key != tintKey || rgb != tintRgbKey) {
                 tintHeight = total;
                 tintKey = key;
+                tintRgbKey = rgb;
                 setFade(height, -Math.max(above, 0), solid / (float) total, rgb, edgeAlpha);
             }
         }

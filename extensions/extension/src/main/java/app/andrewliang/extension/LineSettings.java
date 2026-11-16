@@ -56,6 +56,11 @@ public final class LineSettings {
     static final String BLUR_SYSTEM_BARS = "blur_system_bars";
     static final String BLUR_TOP_DARK_TINT = "blur_top_dark_tint";
     static final String BLUR_BOTTOM_DARK_TINT = "blur_bottom_dark_tint";
+    static final String BLUR_AUTO_COLOR = "blur_auto_color";
+    static final String BLUR_DAY_NIGHT = "blur_day_night";
+    static final int DAY_NIGHT_SYSTEM = 0;
+    static final int DAY_NIGHT_DAY = 1;
+    static final int DAY_NIGHT_NIGHT = 2;
     static final String PREDICTIVE_BACK = "predictive_back";
     static final String SMOOTH_KEYBOARD = "smooth_keyboard";
     static final String CHAT_HAPTICS = "chat_haptics";
@@ -70,6 +75,7 @@ public final class LineSettings {
     // keepunsent reads its switch on the database path of each unsent message, so the values are
     // read from storage once and then kept here. Only the settings screen writes them.
     private static final Map<String, Boolean> VALUES = new ConcurrentHashMap<>();
+    private static final Map<String, Integer> NUMBERS = new ConcurrentHashMap<>();
 
     public static boolean keepChatsUnread() {
         return isOn(KEEP_CHATS_UNREAD);
@@ -173,6 +179,17 @@ public final class LineSettings {
 
     public static boolean blurBottomDarkTint() {
         return isOn(BLUR_BOTTOM_DARK_TINT);
+    }
+
+    /** Tint the chat blur with the background image's own colors. Off by default. */
+    public static boolean blurAutoColor() {
+        return isOn(BLUR_AUTO_COLOR, false);
+    }
+
+    /** Day or night for the chat blur only: system (default), always day, or always night. */
+    public static int blurDayNight() {
+        int value = number(BLUR_DAY_NIGHT, DAY_NIGHT_SYSTEM);
+        return value >= DAY_NIGHT_SYSTEM && value <= DAY_NIGHT_NIGHT ? value : DAY_NIGHT_SYSTEM;
     }
 
     public static boolean predictiveBack() {
@@ -378,13 +395,35 @@ public final class LineSettings {
     }
 
     static boolean isOn(String key) {
-        if (!rowIncluded()) return true;
+        return isOn(key, true);
+    }
+
+    /** A switch with the default [byDefault], which is also its value without the settings row. */
+    static boolean isOn(String key, boolean byDefault) {
+        if (!rowIncluded()) return byDefault;
         Boolean value = VALUES.get(key);
         if (value != null) return value;
         SharedPreferences preferences = preferences();
-        boolean stored = preferences == null || preferences.getBoolean(key, true);
+        boolean stored = preferences == null ? byDefault : preferences.getBoolean(key, byDefault);
         VALUES.put(key, stored);
         return stored;
+    }
+
+    /** A choice stored as a number. Read once, then kept, because the chat reads it each frame. */
+    static int number(String key, int byDefault) {
+        if (!rowIncluded()) return byDefault;
+        Integer value = NUMBERS.get(key);
+        if (value != null) return value;
+        SharedPreferences preferences = preferences();
+        int stored = preferences == null ? byDefault : preferences.getInt(key, byDefault);
+        NUMBERS.put(key, stored);
+        return stored;
+    }
+
+    static void setNumber(String key, int value) {
+        NUMBERS.put(key, value);
+        SharedPreferences preferences = preferences();
+        if (preferences != null) preferences.edit().putInt(key, value).commit();
     }
 
     static void set(String key, boolean on) {
