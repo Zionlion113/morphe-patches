@@ -53,6 +53,16 @@ public final class LineSettings {
     static final String SILENT_CALL_RECORDING = "silent_call_recording";
     static final String SAVE_CALL_RECORDINGS_TO_DEVICE = "save_call_recordings_to_device";
     static final String REMOVE_CALL_RECORDING_LIMIT = "remove_call_recording_limit";
+    static final String BLUR_SYSTEM_BARS = "blur_system_bars";
+    static final String BLUR_TOP_DARK_TINT = "blur_top_dark_tint";
+    static final String BLUR_BOTTOM_DARK_TINT = "blur_bottom_dark_tint";
+    static final String BLUR_AUTO_COLOR = "blur_auto_color";
+    static final String BLUR_DAY_NIGHT = "blur_day_night";
+    static final String CHAT_HAPTICS = "chat_haptics";
+    static final String PREDICTIVE_BACK = "predictive_back";
+    static final String SCROLL_REFRESH_RATE = "scroll_refresh_rate";
+    static final String SMOOTH_KEYBOARD = "smooth_keyboard";
+    static final String SKIP_CUSTOM_SPLASH = "skip_custom_splash";
 
     /** The resource name of the row title. The settings patch adds it to strings.xml. */
     private static final String TITLE_RESOURCE = "andrew_patch_settings";
@@ -63,6 +73,7 @@ public final class LineSettings {
     // keepunsent reads its switch on the database path of each unsent message, so the values are
     // read from storage once and then kept here. Only the settings screen writes them.
     private static final Map<String, Boolean> VALUES = new ConcurrentHashMap<>();
+    private static final Map<String, Integer> NUMBERS = new ConcurrentHashMap<>();
 
     public static boolean keepChatsUnread() {
         return isOn(KEEP_CHATS_UNREAD);
@@ -154,6 +165,47 @@ public final class LineSettings {
 
     public static boolean removeCallRecordingLimit() {
         return isOn(REMOVE_CALL_RECORDING_LIMIT);
+    }
+
+    public static boolean blurSystemBars() {
+        return isOn(BLUR_SYSTEM_BARS);
+    }
+
+    public static boolean blurTopDarkTint() {
+        return isOn(BLUR_TOP_DARK_TINT);
+    }
+
+    public static boolean blurBottomDarkTint() {
+        return isOn(BLUR_BOTTOM_DARK_TINT);
+    }
+
+    public static boolean blurAutoColor() {
+        return isOn(BLUR_AUTO_COLOR, false);
+    }
+
+    public static int blurDayNight() {
+        int value = number(BLUR_DAY_NIGHT, 0);
+        return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    public static boolean predictiveBack() {
+        return isOn(PREDICTIVE_BACK);
+    }
+
+    public static boolean smoothKeyboard() {
+        return isOn(SMOOTH_KEYBOARD);
+    }
+
+    public static boolean chatHaptics() {
+        return isOn(CHAT_HAPTICS);
+    }
+
+    public static boolean scrollRefreshRate() {
+        return isOn(SCROLL_REFRESH_RATE);
+    }
+
+    public static boolean skipCustomSplash() {
+        return isOn(SKIP_CUSTOM_SPLASH);
     }
 
     // The patches that clear a "shown" boolean in place call these: they give false while the
@@ -322,14 +374,58 @@ public final class LineSettings {
         return false;
     }
 
+    static boolean blurSystemBarsIncluded() {
+        return false;
+    }
+
+    static boolean chatHapticsIncluded() {
+        return false;
+    }
+
+    static boolean predictiveBackIncluded() {
+        return false;
+    }
+
+    static boolean scrollRefreshRateIncluded() {
+        return false;
+    }
+
+    static boolean smoothKeyboardIncluded() {
+        return false;
+    }
+
+    static boolean skipCustomSplashIncluded() {
+        return false;
+    }
+
     static boolean isOn(String key) {
-        if (!rowIncluded()) return true;
+        return isOn(key, true);
+    }
+
+    static boolean isOn(String key, boolean defaultValue) {
+        if (!rowIncluded()) return defaultValue;
         Boolean value = VALUES.get(key);
         if (value != null) return value;
         SharedPreferences preferences = preferences();
-        boolean stored = preferences == null || preferences.getBoolean(key, true);
+        boolean stored = preferences == null ? defaultValue : preferences.getBoolean(key, defaultValue);
         VALUES.put(key, stored);
         return stored;
+    }
+
+    static int number(String key, int defaultValue) {
+        if (!rowIncluded()) return defaultValue;
+        Integer value = NUMBERS.get(key);
+        if (value != null) return value;
+        SharedPreferences preferences = preferences();
+        int stored = preferences == null ? defaultValue : preferences.getInt(key, defaultValue);
+        NUMBERS.put(key, stored);
+        return stored;
+    }
+
+    static void setNumber(String key, int value) {
+        NUMBERS.put(key, value);
+        SharedPreferences preferences = preferences();
+        if (preferences != null) preferences.edit().putInt(key, value).commit();
     }
 
     static void set(String key, boolean on) {

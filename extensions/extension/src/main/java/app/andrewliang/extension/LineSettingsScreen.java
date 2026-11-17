@@ -25,6 +25,8 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import java.util.Locale;
+
 /**
  * The "Andrew's Patch Setting" screen: the runtime switches of {@link LineSettings}, then credits
  * and the license.
@@ -70,6 +72,8 @@ final class LineSettingsScreen {
                     + "- Appear only in a secondary or descriptive context, not as part of the "
                     + "product or project name.";
 
+    private static boolean chinese;
+
     static void show(Context context) {
         Activity activity = activityOf(context);
         if (activity == null || activity.isFinishing()) return;
@@ -77,6 +81,8 @@ final class LineSettingsScreen {
         Dialog dialog = new Dialog(activity, android.R.style.Theme_Material_NoActionBar);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         look = Look.of(activity);
+        Locale locale = activity.getResources().getConfiguration().getLocales().get(0);
+        chinese = locale != null && "zh".equals(locale.getLanguage());
         int fallback = activity.getColor(id(activity, "primaryBackground", "color"));
 
         LinearLayout root = new LinearLayout(activity);
@@ -120,9 +126,12 @@ final class LineSettingsScreen {
     }
 
     private static void addSwitches(Activity activity, LinearLayout content) {
-        boolean chats = LineSettings.keepChatsUnreadIncluded() || LineSettings.keepUnsentMessagesIncluded();
+        boolean chats = LineSettings.keepChatsUnreadIncluded() || LineSettings.keepUnsentMessagesIncluded()
+                || LineSettings.smoothKeyboardIncluded() || LineSettings.chatHapticsIncluded()
+                || LineSettings.scrollRefreshRateIncluded();
         boolean general = LineSettings.externalBrowserIncluded() || LineSettings.disableVoomIncluded()
-                || LineSettings.customFontIncluded();
+                || LineSettings.customFontIncluded() || LineSettings.blurSystemBarsIncluded()
+                || LineSettings.predictiveBackIncluded() || LineSettings.skipCustomSplashIncluded();
         boolean tabs = LineSettings.hideTodayTabIncluded() || LineSettings.hideShoppingTabIncluded()
                 || LineSettings.hideVoomTabIncluded() || LineSettings.hideWalletTabIncluded();
         boolean buttons = LineSettings.hideAiFriendsIncluded() || LineSettings.hideCommunityButtonIncluded()
@@ -134,157 +143,250 @@ final class LineSettingsScreen {
                 || LineSettings.saveCallRecordingsToDeviceIncluded() || LineSettings.removeCallRecordingLimitIncluded();
 
         if (!chats && !general && !tabs && !buttons && !calls) {
-            content.addView(note(activity, "No patches in this build have a switch."));
+            content.addView(note(activity, t("No patches in this build have a switch.", "這個版本沒有可切換的修補程式。")));
             return;
         }
 
         if (chats) {
-            content.addView(section(activity, "Chats"));
+            content.addView(section(activity, t("Chats", "聊天")));
             if (LineSettings.keepChatsUnreadIncluded()) {
-                content.addView(toggle(activity, LineSettings.KEEP_CHATS_UNREAD, "Keep chats unread",
-                        "Opening a chat does not mark it read or send a read receipt.", null));
+                content.addView(toggle(activity, LineSettings.KEEP_CHATS_UNREAD,
+                        t("Keep chats unread", "保持聊天未讀"),
+                        t("Opening a chat does not mark it read or send a read receipt.", "開啟聊天室不會標為已讀，也不會傳送已讀通知。"), null));
             }
             if (LineSettings.keepUnsentMessagesIncluded()) {
-                content.addView(toggle(activity, LineSettings.KEEP_UNSENT_MESSAGES, "Keep unsent messages",
-                        "Keeps messages that others unsend, with a red \"Unsent\" label next to the time.", null));
+                content.addView(toggle(activity, LineSettings.KEEP_UNSENT_MESSAGES,
+                        t("Keep unsent messages", "保留已收回的訊息"),
+                        t("Keeps messages that others unsend, with a red \"Unsent\" label next to the time.", "對方收回的訊息會保留下來，並在時間旁顯示紅色的「已收回」標籤。"), null));
+            }
+            if (LineSettings.smoothKeyboardIncluded()) {
+                content.addView(toggle(activity, LineSettings.SMOOTH_KEYBOARD,
+                        t("Smooth keyboard animation", "流暢的鍵盤動畫"),
+                        t("The blurred input bar follows the keyboard frame by frame, with less work on each frame. Android 11 and later.", "模糊的輸入列逐格跟著鍵盤移動，每格的運算更少。需要 Android 11 以上。"), null));
+            }
+            if (LineSettings.chatHapticsIncluded()) {
+                content.addView(toggle(activity, LineSettings.CHAT_HAPTICS,
+                        t("Haptic feedback", "觸覺回饋"),
+                        t("A short vibration when you long-press a message, send, or unsend. Follows the system touch feedback setting.", "長按訊息、傳送或收回時短暫震動。依照系統的觸控回饋設定。"), null));
+            }
+            if (LineSettings.scrollRefreshRateIncluded()) {
+                content.addView(toggle(activity, LineSettings.SCROLL_REFRESH_RATE,
+                        t("High refresh rate while scrolling", "捲動時使用高更新率"),
+                        t("Uses the highest screen refresh rate only while messages scroll. Never in Battery Saver.", "只在捲動訊息時使用最高的螢幕更新率。省電模式下不會啟用。"), null));
             }
         }
 
         if (buttons) {
-            content.addView(section(activity, "Chat buttons"));
-            View restart = row(activity, "Restart LINE", "Shows your button changes now.", true);
+            content.addView(section(activity, t("Chat buttons", "聊天按鈕")));
+            View restart = row(activity, t("Restart LINE", "重新啟動 LINE"), t("Shows your button changes now.", "立即套用按鈕的變更。"), true);
             restart.setVisibility(View.GONE);
             restart.setOnClickListener(v -> restart(activity));
             Runnable showRestart = () -> restart.setVisibility(View.VISIBLE);
 
             if (LineSettings.hideAiFriendsIncluded()) {
-                content.addView(toggle(activity, LineSettings.HIDE_AI_FRIENDS, "Hide AI Friends button",
-                        "In the Chats tab. The Album button shows in its place.", showRestart));
+                content.addView(toggle(activity, LineSettings.HIDE_AI_FRIENDS,
+                        t("Hide AI Friends button", "隱藏 AI 好友按鈕"),
+                        t("In the Chats tab. The Album button shows in its place.", "在聊天分頁。改為顯示相簿按鈕。"), showRestart));
             }
             if (LineSettings.hideCommunityButtonIncluded()) {
-                content.addView(toggle(activity, LineSettings.HIDE_COMMUNITY_BUTTON, "Hide community button",
-                        "In the Chats tab.", showRestart));
+                content.addView(toggle(activity, LineSettings.HIDE_COMMUNITY_BUTTON,
+                        t("Hide community button", "隱藏社群按鈕"),
+                        t("In the Chats tab.", "在聊天分頁。"), showRestart));
             }
             if (LineSettings.hideCalendarIncluded()) {
-                content.addView(toggle(activity, LineSettings.HIDE_CALENDAR, "Hide calendar buttons",
-                        "In the Chats tab, in chats and in the Home tab.", showRestart));
+                content.addView(toggle(activity, LineSettings.HIDE_CALENDAR,
+                        t("Hide calendar buttons", "隱藏行事曆按鈕"),
+                        t("In the Chats tab, in chats and in the Home tab.", "在聊天分頁、聊天室和主頁分頁。"), showRestart));
             }
             if (LineSettings.hideEventsIncluded()) {
-                content.addView(toggle(activity, LineSettings.HIDE_EVENTS, "Hide Events button",
-                        "In the chat menu.", showRestart));
+                content.addView(toggle(activity, LineSettings.HIDE_EVENTS,
+                        t("Hide Events button", "隱藏活動按鈕"),
+                        t("In the chat menu.", "在聊天室選單。"), showRestart));
             }
             if (LineSettings.hideGiftIncluded()) {
-                content.addView(toggle(activity, LineSettings.HIDE_GIFT, "Hide LINE GIFT button",
-                        "In the + menu of a chat.", showRestart));
+                content.addView(toggle(activity, LineSettings.HIDE_GIFT,
+                        t("Hide LINE GIFT button", "隱藏 LINE 禮物按鈕"),
+                        t("In the + menu of a chat.", "在聊天室的 + 選單。"), showRestart));
             }
             if (LineSettings.hideTransferIncluded()) {
-                content.addView(toggle(activity, LineSettings.HIDE_TRANSFER, "Hide Transfer button",
-                        "In the + menu of a chat.", showRestart));
+                content.addView(toggle(activity, LineSettings.HIDE_TRANSFER,
+                        t("Hide Transfer button", "隱藏轉帳按鈕"),
+                        t("In the + menu of a chat.", "在聊天室的 + 選單。"), showRestart));
             }
             if (LineSettings.hideAttachToolsIncluded()) {
-                content.addView(toggle(activity, LineSettings.HIDE_ATTACH_TOOLS, "Hide attach menu extra tools",
-                        "Poll, Schedule and other server tools in the + menu of a chat.", showRestart));
+                content.addView(toggle(activity, LineSettings.HIDE_ATTACH_TOOLS,
+                        t("Hide attach menu extra tools", "隱藏 + 選單的額外工具"),
+                        t("Poll, Schedule and other server tools in the + menu of a chat.", "聊天室 + 選單中的投票、活動排程等伺服器工具。"), showRestart));
             }
             if (LineSettings.hideChatTipsIncluded()) {
-                content.addView(toggle(activity, LineSettings.HIDE_CHAT_TIPS, "Hide tips under messages",
-                        "The \"CHECK\" tips under some messages.", showRestart));
+                content.addView(toggle(activity, LineSettings.HIDE_CHAT_TIPS,
+                        t("Hide tips under messages", "隱藏訊息下方的提示"),
+                        t("The \"CHECK\" tips under some messages.", "部分訊息下方的「CHECK」提示。"), showRestart));
             }
             if (LineSettings.hideLineAiImageEditIncluded()) {
-                content.addView(toggle(activity, LineSettings.HIDE_LINE_AI_IMAGE_EDIT, "Hide LINE AI image editing",
-                        "\"AI Edit\" in chats and the AI button in photo viewers.", showRestart));
+                content.addView(toggle(activity, LineSettings.HIDE_LINE_AI_IMAGE_EDIT,
+                        t("Hide LINE AI image editing", "隱藏 LINE AI 圖片編輯"),
+                        t("\"AI Edit\" in chats and the AI button in photo viewers.", "聊天室中的「AI 編輯」，以及看圖畫面的 AI 按鈕。"), showRestart));
             }
             if (LineSettings.hideAgentIIncluded()) {
-                content.addView(toggle(activity, LineSettings.HIDE_AGENT_I, "Hide Agent i",
-                        "In the Home tab, the search bar, chats, the + menu, the Wallet tab and Settings.",
+                content.addView(toggle(activity, LineSettings.HIDE_AGENT_I,
+                        t("Hide Agent i", "隱藏 Agent i"),
+                        t("In the Home tab, the search bar, chats, the + menu, the Wallet tab and Settings.", "在主頁分頁、搜尋列、聊天室、+ 選單、錢包分頁和設定。"),
                         showRestart));
             }
-            content.addView(note(activity, "Some button changes show only after LINE restarts."));
+            content.addView(note(activity, t("Some button changes show only after LINE restarts.", "部分按鈕的變更要在 LINE 重新啟動後才會生效。")));
             content.addView(restart);
         }
 
         if (general) {
-            content.addView(section(activity, "General"));
+            content.addView(section(activity, t("General", "一般")));
             if (LineSettings.externalBrowserIncluded()) {
-                content.addView(toggle(activity, LineSettings.EXTERNAL_BROWSER, "Open links in external browser",
-                        "Opens web links in your default browser instead of LINE's browser.", null));
+                content.addView(toggle(activity, LineSettings.EXTERNAL_BROWSER,
+                        t("Open links in external browser", "用外部瀏覽器開啟連結"),
+                        t("Opens web links in your default browser instead of LINE's browser.", "網頁連結改用預設瀏覽器開啟，而不是 LINE 的內建瀏覽器。"), null));
             }
             if (LineSettings.disableVoomIncluded()) {
-                content.addView(toggle(activity, LineSettings.DISABLE_VOOM, "Disable VOOM",
-                        "VOOM links, shares and notifications do nothing.", null));
+                content.addView(toggle(activity, LineSettings.DISABLE_VOOM,
+                        t("Disable VOOM", "停用 VOOM"),
+                        t("VOOM links, shares and notifications do nothing.", "VOOM 的連結、分享和通知都不會有作用。"), null));
             }
             if (LineSettings.customFontIncluded()) {
                 // A restart in a new task does not change the font of LINE's Compose screens.
-                View close = row(activity, "Close LINE", "Open LINE again to apply your font change.", true);
+                View close = row(activity, t("Close LINE", "關閉 LINE"), t("Open LINE again to apply your font change.", "重新開啟 LINE 以套用字型變更。"), true);
                 close.setVisibility(View.GONE);
                 close.setOnClickListener(v -> CustomFontPicker.exit(activity));
-                content.addView(toggle(activity, LineSettings.CUSTOM_FONT, "Custom font",
-                        "Uses the font that you upload on LINE's Font page.",
+                content.addView(toggle(activity, LineSettings.CUSTOM_FONT,
+                        t("Custom font", "自訂字型"),
+                        t("Uses the font that you upload on LINE's Font page.", "使用你在 LINE 字型頁面上傳的字型。"),
                         () -> close.setVisibility(View.VISIBLE)));
                 content.addView(close);
+            }
+            if (LineSettings.blurSystemBarsIncluded()) {
+                View restart = row(activity, t("Restart LINE", "重新啟動 LINE"), t("Shows your system bar change now.", "立即套用系統列的變更。"), true);
+                restart.setVisibility(View.GONE);
+                restart.setOnClickListener(v -> restart(activity));
+                content.addView(toggle(activity, LineSettings.BLUR_SYSTEM_BARS,
+                        t("Transparent system bars with blur", "透明系統列與模糊效果"),
+                        t("The theme artwork fills the status bar and the gesture bar. In chats, messages blur out behind the header and the input bar.", "主題圖片延伸到狀態列和手勢列。聊天室中，訊息在標題列和輸入列後方逐漸模糊。"),
+                        () -> restart.setVisibility(View.VISIBLE)));
+                content.addView(toggle(activity, LineSettings.BLUR_AUTO_COLOR,
+                        t("Auto color", "自動配色"),
+                        t("Tints the chat blur with the colors of the chat background image, at the top and at the bottom, and picks black or white icons to match. Chats with no background image keep the normal colors. Overrides Blur day/night.", "依聊天背景圖片上方與下方的顏色，為聊天室的模糊效果上色，並自動選用黑色或白色圖示。沒有背景圖片的聊天室維持一般配色。開啟時會取代「模糊日夜模式」。"),
+                        false, null));
+                content.addView(dayNightChoice(activity));
+                content.addView(restart);
+            }
+            if (LineSettings.predictiveBackIncluded()) {
+                View restart = row(activity, t("Restart LINE", "重新啟動 LINE"), t("Applies your back gesture change now.", "立即套用返回手勢的變更。"), true);
+                restart.setVisibility(View.GONE);
+                restart.setOnClickListener(v -> restart(activity));
+                content.addView(toggle(activity, LineSettings.PREDICTIVE_BACK,
+                        t("Predictive back", "預測返回手勢"),
+                        t("Shows Android's back animation as you swipe back, on screens that allow it. Android 14 and later. Off keeps the old back behavior.", "在支援的畫面上，滑動返回時顯示 Android 的返回動畫。需要 Android 14 以上。關閉則維持原本的返回方式。"),
+                        () -> restart.setVisibility(View.VISIBLE)));
+                content.addView(restart);
+            }
+            if (LineSettings.skipCustomSplashIncluded()) {
+                content.addView(toggle(activity, LineSettings.SKIP_CUSTOM_SPLASH,
+                        t("Skip custom splash", "略過自訂啟動畫面"),
+                        t("Skips LINE's extra splash screen after Android's launch screen.", "略過 Android 啟動畫面之後 LINE 的額外啟動畫面。"), null));
             }
         }
 
         if (calls) {
-            content.addView(section(activity, "Calls"));
+            content.addView(section(activity, t("Calls", "通話")));
             if (LineSettings.autoRecordCallsIncluded()) {
-                content.addView(toggle(activity, LineSettings.AUTO_RECORD_CALLS, "Auto-record calls",
-                        "Starts recording a 1-to-1 call as soon as it connects.", null));
+                content.addView(toggle(activity, LineSettings.AUTO_RECORD_CALLS,
+                        t("Auto-record calls", "自動錄製通話"),
+                        t("Starts recording a 1-to-1 call as soon as it connects.", "一對一通話接通後立即開始錄音。"), null));
             }
             if (LineSettings.silentCallRecordingIncluded()) {
-                content.addView(toggle(activity, LineSettings.SILENT_CALL_RECORDING, "Record without notifying",
-                        "The other person is not told that you record, and hears no recording announcement.", null));
+                content.addView(toggle(activity, LineSettings.SILENT_CALL_RECORDING,
+                        t("Record without notifying", "錄音時不通知對方"),
+                        t("The other person is not told that you record, and hears no recording announcement.", "不會告知對方你正在錄音，對方也不會聽到錄音提示。"), null));
             }
             if (LineSettings.saveCallRecordingsToDeviceIncluded()) {
-                content.addView(toggle(activity, LineSettings.SAVE_CALL_RECORDINGS_TO_DEVICE, "Save recordings to device",
-                        "On: saves each recording to Movies/LINE on your phone. Off: shares it to Keep Memo, "
-                                + "which refuses files over 1 GB. Each recording also stays in the chat's Call recordings list.",
+                content.addView(toggle(activity, LineSettings.SAVE_CALL_RECORDINGS_TO_DEVICE,
+                        t("Save recordings to device", "將錄音儲存到裝置"),
+                        t("On: saves each recording to Movies/LINE on your phone. Off: shares it to Keep Memo, which refuses files over 1 GB. Each recording also stays in the chat's Call recordings list.", "開啟：每段錄音都存到手機的 Movies/LINE。關閉：分享到 Keep 筆記，但超過 1 GB 的檔案會被拒絕。每段錄音也都會留在聊天室的通話錄音清單中。"),
                         null));
             }
             if (LineSettings.removeCallRecordingLimitIncluded()) {
-                content.addView(toggle(activity, LineSettings.REMOVE_CALL_RECORDING_LIMIT, "Remove recording time limit",
-                        "Records a call until it ends. Without this, LINE stops voice recordings after 60 minutes "
-                                + "and video recordings after 20 or 50 minutes.",
+                content.addView(toggle(activity, LineSettings.REMOVE_CALL_RECORDING_LIMIT,
+                        t("Remove recording time limit", "移除錄音時間限制"),
+                        t("Records a call until it ends. Without this, LINE stops voice recordings after 60 minutes and video recordings after 20 or 50 minutes.", "錄到通話結束為止。未開啟時，LINE 會在語音通話 60 分鐘、視訊通話 20 或 50 分鐘後停止錄音。"),
                         null));
             }
         }
 
         if (tabs) {
-            content.addView(section(activity, "Tabs"));
-            View restart = row(activity, "Restart LINE", "Shows your tab changes now.", true);
+            content.addView(section(activity, t("Tabs", "分頁")));
+            View restart = row(activity, t("Restart LINE", "重新啟動 LINE"), t("Shows your tab changes now.", "立即套用分頁的變更。"), true);
             restart.setVisibility(View.GONE);
             restart.setOnClickListener(v -> restart(activity));
             Runnable showRestart = () -> restart.setVisibility(View.VISIBLE);
 
             if (LineSettings.hideTodayTabIncluded()) {
-                content.addView(toggle(activity, LineSettings.HIDE_TODAY_TAB, "Hide LINE TODAY tab", null, showRestart));
+                content.addView(toggle(activity, LineSettings.HIDE_TODAY_TAB, t("Hide LINE TODAY tab", "隱藏 LINE TODAY 分頁"), null, showRestart));
             }
             if (LineSettings.hideShoppingTabIncluded()) {
-                content.addView(toggle(activity, LineSettings.HIDE_SHOPPING_TAB, "Hide Shopping tab", null, showRestart));
+                content.addView(toggle(activity, LineSettings.HIDE_SHOPPING_TAB, t("Hide Shopping tab", "隱藏購物分頁"), null, showRestart));
             }
             if (LineSettings.hideVoomTabIncluded()) {
-                content.addView(toggle(activity, LineSettings.HIDE_VOOM_TAB, "Hide VOOM tab", null, showRestart));
+                content.addView(toggle(activity, LineSettings.HIDE_VOOM_TAB, t("Hide VOOM tab", "隱藏 VOOM 分頁"), null, showRestart));
             }
             if (LineSettings.hideWalletTabIncluded()) {
-                content.addView(toggle(activity, LineSettings.HIDE_WALLET_TAB, "Hide Wallet tab", null, showRestart));
+                content.addView(toggle(activity, LineSettings.HIDE_WALLET_TAB, t("Hide Wallet tab", "隱藏錢包分頁"), null, showRestart));
             }
-            content.addView(note(activity, "Tab changes show after LINE restarts."));
+            content.addView(note(activity, t("Tab changes show after LINE restarts.", "分頁的變更要在 LINE 重新啟動後才會生效。")));
             content.addView(restart);
         }
     }
 
-    private static void addCredits(Activity activity, LinearLayout content) {
-        content.addView(section(activity, "Credits & license"));
+    private static View dayNightChoice(Activity activity) {
+        String[] labels = {
+                t("Follow system", "跟隨系統"),
+                t("Always day", "固定日間"),
+                t("Always night", "固定夜間"),
+        };
+        View row = row(activity, t("Blur day/night", "模糊日夜模式"),
+                t("Day or night look for the chat blur and its icons only. LINE's own theme does not change. Auto color, when on, takes over.",
+                        "只改變聊天室模糊效果與圖示的日夜樣式，不影響 LINE 本身的主題。開啟「自動配色」時以自動配色為準。"),
+                true);
+        TextView value = row.findViewById(id(activity, "setting_inlined_value", "id"));
+        value.setText(labels[LineSettings.blurDayNight()]);
+        value.setVisibility(View.VISIBLE);
+        look.paint(value, look.secondary());
+        row.setOnClickListener(v -> new AlertDialog.Builder(activity)
+                .setTitle(t("Blur day/night", "模糊日夜模式"))
+                .setSingleChoiceItems(labels, LineSettings.blurDayNight(), (dialog, which) -> {
+                    LineSettings.setNumber(LineSettings.BLUR_DAY_NIGHT, which);
+                    value.setText(labels[which]);
+                    dialog.dismiss();
+                })
+                .setNegativeButton(t("Cancel", "取消"), null)
+                .show());
+        return row;
+    }
 
-        View about = row(activity, "Andrew's Patches", "By Andrew Liang", true);
+    private static void addCredits(Activity activity, LinearLayout content) {
+        content.addView(section(activity, t("Credits & license", "致謝與授權")));
+
+        View about = row(activity, "Andrew's Patches", t("By Andrew Liang", "作者：Andrew Liang"), true);
         about.setOnClickListener(v -> open(activity, SOURCE_URL));
         content.addView(about);
 
-        View license = row(activity, "License", "GNU General Public License v3.0", true);
+        View license = row(activity, t("License", "授權條款"), "GNU General Public License v3.0", true);
         license.setOnClickListener(v -> showLicense(activity));
         content.addView(license);
 
-        content.addView(note(activity, "This project has no connection to the Morphe open source project, "
-                + "LINE, or LY Corporation. They do not endorse it and did not write it."));
+        content.addView(note(activity, t("This project has no connection to the Morphe open source project, "
+                + "LINE, or LY Corporation. They do not endorse it and did not write it.",
+                "本專案與 Morphe 開源專案、LINE 及 LY Corporation 無任何關係，他們並未背書，也未參與開發。")));
+    }
+
+    private static String t(String en, String zh) {
+        return chinese ? zh : en;
     }
 
     /** A back arrow and the title, like the header of LINE's own settings pages. */
@@ -301,14 +403,14 @@ final class LineSettingsScreen {
         // takes the color of the header title, as on LINE's own pages.
         ColorStateList titleColors = look.headerTitle != null ? look.headerTitle : look.title;
         if (titleColors != null) back.setImageTintList(titleColors);
-        back.setContentDescription("Back");
+        back.setContentDescription(t("Back", "返回"));
         back.setPadding(dp(activity, 4), 0, 0, 0);
         back.setOnClickListener(v -> dialog.dismiss());
         header.addView(back, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, height));
 
         TextView title = new TextView(activity);
         title.setTextAppearance(id(activity, "text_header_title_new_design", "style"));
-        title.setText("Andrew's Patch Setting");
+        title.setText(t("Andrew's Patch Setting", "Andrew 修補程式設定"));
         look.paint(title, titleColors);
         header.addView(title);
         return header;
@@ -316,6 +418,11 @@ final class LineSettingsScreen {
 
     /** LINE's switch row. A tap anywhere on the row flips the switch. */
     private static View toggle(Activity activity, String key, String title, String summary, Runnable onChange) {
+        return toggle(activity, key, title, summary, true, onChange);
+    }
+
+    private static View toggle(Activity activity, String key, String title, String summary,
+                               boolean defaultOn, Runnable onChange) {
         View row = inflate(activity, "line_user_settings_switch_item_view");
         text(activity, row, "setting_title", title);
         if (summary != null) text(activity, row, "setting_description", summary);
@@ -324,7 +431,7 @@ final class LineSettingsScreen {
         View container = row.findViewById(id(activity, "setting_item_container", "id"));
         look.press(container);
         CheckedTextView toggle = row.findViewById(id(activity, "setting_switch", "id"));
-        toggle.setChecked(LineSettings.isOn(key));
+        toggle.setChecked(LineSettings.isOn(key, defaultOn));
         container.setOnClickListener(v -> {
             boolean on = !toggle.isChecked();
             toggle.setChecked(on);
@@ -540,10 +647,10 @@ final class LineSettingsScreen {
         scroll.addView(text);
 
         new AlertDialog.Builder(activity)
-                .setTitle("License")
+                .setTitle(t("License", "授權條款"))
                 .setView(scroll)
-                .setNegativeButton("Full license", (d, w) -> open(activity, LICENSE_URL))
-                .setPositiveButton("Close", null)
+                .setNegativeButton(t("Full license", "完整授權條款"), (d, w) -> open(activity, LICENSE_URL))
+                .setPositiveButton(t("Close", "關閉"), null)
                 .show();
     }
 
