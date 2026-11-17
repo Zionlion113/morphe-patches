@@ -61,7 +61,7 @@ public final class BlurBars {
     private static final int INPUT_HINT_DAY = -7697782;
     private static final String INPUT_MIC = "chat_ui_send_button_image";
     private static final int INPUT_PILL_FILL = -657931;
-    private static final int INPUT_PILL_FILL_DARK = -14277082;
+    private static final int INPUT_PILL_FILL_DARK = 0x88262626;
     private static final int INPUT_TEXT_DARK = -1;
     private static final int INPUT_TEXT_DAY = -15658735;
     private static final String NAVIGATION_BAR = "main_navigation_bar_background";
@@ -1109,6 +1109,7 @@ public final class BlurBars {
             ColorStateList color = Build.VERSION.SDK_INT >= 24 ? gradientDrawable.getColor() : null;
             if (color == null || color.getDefaultColor() != i) {
                 gradientDrawable.setColor(i);
+                gradientDrawable.setStroke(0, 0);
             }
         }
     }

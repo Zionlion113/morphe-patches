@@ -123,7 +123,7 @@ public final class ScrollRefreshRate {
 
         private void boost(View view) {
             int iFastestMode;
-            if (Build.VERSION.SDK_INT >= 35) {
+            if (Build.VERSION.SDK_INT >= 36) {
                 this.oldFrameRate = view.getRequestedFrameRate();
                 view.setRequestedFrameRate(-4.0f);
                 this.votedOn = view;
@@ -147,7 +147,7 @@ public final class ScrollRefreshRate {
             this.decor.removeCallbacks(this.idle);
             if (this.boosted) {
                 this.boosted = false;
-                if (Build.VERSION.SDK_INT >= 35) {
+                if (Build.VERSION.SDK_INT >= 36) {
                     View view = this.votedOn;
                     if (view != null) {
                         view.setRequestedFrameRate(this.oldFrameRate);
