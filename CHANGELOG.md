@@ -1,3 +1,9 @@
+## [3.13.0-dev.1](https://github.com/Zionlion113/morphe-patches/compare/v3.12.0...v3.13.0-dev.1) (2026-11-17)
+
+### ✨ New Features
+
+* **LINE:** add blur system bars, haptics, predictive back, scroll refresh rate, smooth keyboard, and skip custom splash ([d67cc75](https://github.com/Zionlion113/morphe-patches/commit/d67cc7537ac006cb92382da1842778f02665e423))
+
 ## [3.12.0](https://github.com/andrewliang25/morphe-patches/compare/v3.11.0...v3.12.0) (2026-11-15)
 
 ### 🐛 Bug Fixes

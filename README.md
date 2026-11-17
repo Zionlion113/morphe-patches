@@ -17,7 +17,7 @@ Morphe Manager to build a modified APK.
 ## 🩹 Patches list
 
 <!-- PATCHES_START EXPANDED -->
-> **[v3.12.0](https://github.com/andrewliang25/morphe-patches/releases/tag/v3.12.0)**&nbsp;&nbsp;•&nbsp;&nbsp;`main`&nbsp;&nbsp;•&nbsp;&nbsp;59 patches total
+> **[v3.13.0-dev.1](https://github.com/Zionlion113/morphe-patches/releases/tag/v3.13.0-dev.1)**&nbsp;&nbsp;•&nbsp;&nbsp;`dev`&nbsp;&nbsp;•&nbsp;&nbsp;65 patches total
 <details open>
 <summary>📦 Facebook&nbsp;&nbsp;•&nbsp;&nbsp;20 patches</summary>
 <br>
@@ -53,7 +53,7 @@ Morphe Manager to build a modified APK.
 </details>
 
 <details open>
-<summary>📦 LINE&nbsp;&nbsp;•&nbsp;&nbsp;39 patches</summary>
+<summary>📦 LINE&nbsp;&nbsp;•&nbsp;&nbsp;45 patches</summary>
 <br>
 
 **🎯 Supported versions:**
@@ -69,6 +69,7 @@ Morphe Manager to build a modified APK.
 | [[Call] Record calls without notifying](#call-record-calls-without-notifying) | Records a 1-to-1 LINE call without telling the other party: no on-screen banner and no spoken recording announcement. Recording a call without the other person's consent is illegal in some places. You are responsible for following the law where you are. |  |
 | [[Call] Remove recording time limit](#call-remove-recording-time-limit) | Records a call until it ends. LINE stops voice recordings after 60 minutes and video recordings after 20 or 50 minutes. |  |
 | [[Call] Save recordings to device](#call-save-recordings-to-device) | Saves each call recording to the Movies/LINE folder on your phone instead of sharing it to Keep Memo, which refuses files over 1 GB. |  |
+| [[Chat] Haptic feedback](#chat-haptic-feedback) | Adds a short vibration when you long-press a message, send a message, or unsend one. It follows the system touch feedback setting. |  |
 | [[Chat] Hide AI Friends button](#chat-hide-ai-friends-button) | Removes the AI Friends button from the Chats tab header. The Album button shows in its place. |  |
 | [[Chat] Hide Events button](#chat-hide-events-button) | Removes the "Events" row from the slide-out menu in a chat room. Events is a different feature from LINE Calendar, and it opens a server-hosted page. |  |
 | [[Chat] Hide LINE GIFT button](#chat-hide-line-gift-button) | Removes the LINE GIFT tile from the + attach menu in a chat room. |  |
@@ -77,8 +78,10 @@ Morphe Manager to build a modified APK.
 | [[Chat] Hide calendar buttons](#chat-hide-calendar-buttons) | Removes every LINE Calendar button: in the Chats tab, the chat toolbar and menus, and the Home tab. |  |
 | [[Chat] Hide community button](#chat-hide-community-button) | Removes the community (OpenChat) button from the top of the Chats tab header. |  |
 | [[Chat] Hide tips under messages](#chat-hide-tips-under-messages) | Hides the "CHECK" tips under some messages, such as a received video. |  |
+| [[Chat] High refresh rate while scrolling](#chat-high-refresh-rate-while-scrolling) | Uses the highest screen refresh rate only while chat messages scroll, and lets the system choose again when they stop. Uses Adaptive Refresh Rate on Android 15 and later. Never in Battery Saver. |  |
 | [[Chat] Keep chats unread](#chat-keep-chats-unread) | When you open a chat, LINE does not mark it read or send a read receipt. "Mark as read" still works. |  |
 | [[Chat] Keep unsent messages](#chat-keep-unsent-messages) | Keeps messages that others unsend in 1:1 and group chats, with a red "Unsent" label next to the time. OpenChat is not covered. |  |
+| [[Chat] Smooth keyboard animation](#chat-smooth-keyboard-animation) | Lets the blurred chat input bar follow the keyboard frame by frame, with less work on each frame. LINE already moves the input bar with the keyboard; this keeps the blur of "Transparent system bars with blur" in step with it. Android 11 and later. |  |
 | [[Fix] Restore Google login via MicroG-RE](#fix-restore-google-login-via-microg-re) | Makes "Continue with Google" work on a re-signed build, through MicroG-RE. Root Mount does not need it. |  |
 | [[Fix] Restore biometric login](#fix-restore-biometric-login) | Biometric login can be linked again on a re-signed build. A Root Mount install does not need this patch. |  |
 | [[Fix] Restore chat backup sign-in via MicroG-RE](#fix-restore-chat-backup-sign-in-via-microg-re) | Makes Google Drive chat backup and restore work on a re-signed build, through MicroG-RE. Root Mount does not need it. |  |
@@ -92,7 +95,10 @@ Morphe Manager to build a modified APK.
 | [[General] Hide LINE AI image editing](#general-hide-line-ai-image-editing) | Removes the LINE AI image editing buttons: "AI Edit" in the message long-press menu, the button next to an image message, and the button in the chat, album, Note and profile photo viewers. The normal photo editor stays. |  |
 | [[General] Hide new item badges](#general-hide-new-item-badges) | Hides the green dots and N badges that mark new items, on header buttons, tabs, menus, lists and settings rows. Unread message counts do not change. |  |
 | [[General] Open links in external browser](#general-open-links-in-external-browser) | Opens web links in your default browser instead of LINE's in-app browser. LIFF mini-apps and LINE links stay in LINE. |  |
+| [[General] Predictive back](#general-predictive-back) | Shows Android's predictive back animation when you swipe back, on Android 14 and later. Screens with their own back handling keep the old behavior. |  |
 | [[General] Redirect LINE Pay](#general-redirect-line-pay) | Opens LINE Pay in the standalone LINE Pay app, so the integrity check that fails on a re-signed build never runs. |  |
+| [[General] Skip custom splash](#general-skip-custom-splash) | Skips LINE's extra promotional splash screen after Android's launch screen. |  |
+| [[General] Transparent system bars with blur](#general-transparent-system-bars-with-blur) | Removes the theme color blocks behind the status bar and the gesture bar on every screen: the theme artwork fills them, and the bottom tabs keep their theme. In chats, the background fills the window, the header and the input bar stay on top, and messages blur out behind them. The input box has smooth rounded corners. Battery Saver shows a dark fade instead of the blur. |  |
 | [[General] Trust user-installed CAs](#general-trust-user-installed-cas) | Makes LINE trust certificate authorities you install, so your own HTTPS proxy can read LIFF and mini-app web traffic. Bank and LINE Pay stay pinned. For debugging. Off by default. |  |
 | [[Home] Hide Home content feed](#home-hide-home-content-feed) | Removes the content feed below the friends list on the Home tab: LINE NEWS, official account posts and rankings. |  |
 | [[Home] Hide Home modules](#home-hide-home-modules) | Hides the recommended content, hot-topics and ad modules on the Home tab. |  |

@@ -1,6 +1,6 @@
 {
   "NOTE": "Do NOT manually edit this file. This file is automatically updated when semantic release (release.yml) runs. Manually editing this file can break your releases and break third party tools that use this file.",
-  "version": "3.12.0",
+  "version": "3.13.0-dev.1",
   "patches": [
     {
       "name": "[Ad] Block ad telemetry",
@@ -270,6 +270,48 @@
           "appIconColor": "#06C755",
           "signatures": null,
           "targets": [
+            {
+              "version": "26.16.0",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": 30,
+              "description": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "[Chat] Haptic feedback",
+      "description": "Adds a short vibration when you long-press a message, send a message, or unsend one. It follows the system touch feedback setting.",
+      "default": true,
+      "dependencies": [
+        "BytecodePatch"
+      ],
+      "compatiblePackages": [
+        {
+          "packageName": "jp.naver.line.android",
+          "name": "LINE",
+          "description": null,
+          "apkFileType": "APKM",
+          "appIconColor": "#06C755",
+          "signatures": null,
+          "targets": [
+            {
+              "version": "26.14.0",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": 30,
+              "description": null
+            },
+            {
+              "version": "26.15.1",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": 32,
+              "description": null
+            },
             {
               "version": "26.16.0",
               "versionCodes": null,
@@ -624,6 +666,48 @@
       "options": []
     },
     {
+      "name": "[Chat] High refresh rate while scrolling",
+      "description": "Uses the highest screen refresh rate only while chat messages scroll, and lets the system choose again when they stop. Uses Adaptive Refresh Rate on Android 15 and later. Never in Battery Saver.",
+      "default": true,
+      "dependencies": [
+        "BytecodePatch"
+      ],
+      "compatiblePackages": [
+        {
+          "packageName": "jp.naver.line.android",
+          "name": "LINE",
+          "description": null,
+          "apkFileType": "APKM",
+          "appIconColor": "#06C755",
+          "signatures": null,
+          "targets": [
+            {
+              "version": "26.14.0",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": 30,
+              "description": null
+            },
+            {
+              "version": "26.15.1",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": 32,
+              "description": null
+            },
+            {
+              "version": "26.16.0",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": 30,
+              "description": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
       "name": "[Chat] Keep chats unread",
       "description": "When you open a chat, LINE does not mark it read or send a read receipt. \"Mark as read\" still works.",
       "default": true,
@@ -668,6 +752,48 @@
     {
       "name": "[Chat] Keep unsent messages",
       "description": "Keeps messages that others unsend in 1:1 and group chats, with a red \"Unsent\" label next to the time. OpenChat is not covered.",
+      "default": true,
+      "dependencies": [
+        "BytecodePatch"
+      ],
+      "compatiblePackages": [
+        {
+          "packageName": "jp.naver.line.android",
+          "name": "LINE",
+          "description": null,
+          "apkFileType": "APKM",
+          "appIconColor": "#06C755",
+          "signatures": null,
+          "targets": [
+            {
+              "version": "26.14.0",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": 30,
+              "description": null
+            },
+            {
+              "version": "26.15.1",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": 32,
+              "description": null
+            },
+            {
+              "version": "26.16.0",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": 30,
+              "description": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "[Chat] Smooth keyboard animation",
+      "description": "Lets the blurred chat input bar follow the keyboard frame by frame, with less work on each frame. LINE already moves the input bar with the keyboard; this keeps the blur of \"Transparent system bars with blur\" in step with it. Android 11 and later.",
       "default": true,
       "dependencies": [
         "BytecodePatch"
@@ -1521,10 +1647,137 @@
       "options": []
     },
     {
+      "name": "[General] Predictive back",
+      "description": "Shows Android's predictive back animation when you swipe back, on Android 14 and later. Screens with their own back handling keep the old behavior.",
+      "default": true,
+      "dependencies": [
+        "BytecodePatch",
+        "ResourcePatch"
+      ],
+      "compatiblePackages": [
+        {
+          "packageName": "jp.naver.line.android",
+          "name": "LINE",
+          "description": null,
+          "apkFileType": "APKM",
+          "appIconColor": "#06C755",
+          "signatures": null,
+          "targets": [
+            {
+              "version": "26.14.0",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": 30,
+              "description": null
+            },
+            {
+              "version": "26.15.1",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": 32,
+              "description": null
+            },
+            {
+              "version": "26.16.0",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": 30,
+              "description": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
       "name": "[General] Redirect LINE Pay",
       "description": "Opens LINE Pay in the standalone LINE Pay app, so the integrity check that fails on a re-signed build never runs.",
       "default": true,
       "dependencies": [],
+      "compatiblePackages": [
+        {
+          "packageName": "jp.naver.line.android",
+          "name": "LINE",
+          "description": null,
+          "apkFileType": "APKM",
+          "appIconColor": "#06C755",
+          "signatures": null,
+          "targets": [
+            {
+              "version": "26.14.0",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": 30,
+              "description": null
+            },
+            {
+              "version": "26.15.1",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": 32,
+              "description": null
+            },
+            {
+              "version": "26.16.0",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": 30,
+              "description": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "[General] Skip custom splash",
+      "description": "Skips LINE's extra promotional splash screen after Android's launch screen.",
+      "default": true,
+      "dependencies": [
+        "BytecodePatch"
+      ],
+      "compatiblePackages": [
+        {
+          "packageName": "jp.naver.line.android",
+          "name": "LINE",
+          "description": null,
+          "apkFileType": "APKM",
+          "appIconColor": "#06C755",
+          "signatures": null,
+          "targets": [
+            {
+              "version": "26.14.0",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": 30,
+              "description": null
+            },
+            {
+              "version": "26.15.1",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": 32,
+              "description": null
+            },
+            {
+              "version": "26.16.0",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": 30,
+              "description": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "[General] Transparent system bars with blur",
+      "description": "Removes the theme color blocks behind the status bar and the gesture bar on every screen: the theme artwork fills them, and the bottom tabs keep their theme. In chats, the background fills the window, the header and the input bar stay on top, and messages blur out behind them. The input box has smooth rounded corners. Battery Saver shows a dark fade instead of the blur.",
+      "default": true,
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",
