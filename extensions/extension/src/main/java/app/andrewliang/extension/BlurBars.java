@@ -61,7 +61,7 @@ public final class BlurBars {
     private static final int INPUT_HINT_DAY = -7697782;
     private static final String INPUT_MIC = "chat_ui_send_button_image";
     private static final int INPUT_PILL_FILL = -657931;
-    private static final int INPUT_PILL_FILL_DARK = 0x88262626;
+    private static final int INPUT_PILL_FILL_DARK = 0x33FFFFFF;
     private static final int INPUT_TEXT_DARK = -1;
     private static final int INPUT_TEXT_DAY = -15658735;
     private static final String NAVIGATION_BAR = "main_navigation_bar_background";
@@ -641,9 +641,9 @@ public final class BlurBars {
         if (map.isEmpty()) {
             return;
         }
-        for (Map.Entry<View, MirroredArtworkDrawable> entry : new ArrayList<>(map.entrySet())) {
-            View view = (View) entry.getKey();
-            MirroredArtworkDrawable mirroredArtworkDrawable = (MirroredArtworkDrawable) entry.getValue();
+        for (Map.Entry<View, MirroredArtworkDrawable> entry : map.entrySet()) {
+            View view = entry.getKey();
+            MirroredArtworkDrawable mirroredArtworkDrawable = entry.getValue();
             if (view != null && mirroredArtworkDrawable != null && view.isAttachedToWindow()) {
                 if (view.getBackground() != mirroredArtworkDrawable) {
                     view.setBackground(mirroredArtworkDrawable);
@@ -792,6 +792,8 @@ public final class BlurBars {
             }
         }
 
+        private final int[] tmpLoc = new int[2];
+
         void update() {
             Context context = this.header.getContext();
             for (String str : BlurBars.CHAT_HEADER_LAYERS) {
@@ -803,6 +805,15 @@ public final class BlurBars {
             View view = this.skin;
             if (view != null) {
                 BlurBars.prepareChatSkin(view);
+            }
+            if (this.header != null) {
+                BlurBars.unclipAncestors(this.header);
+            }
+            if (this.input != null) {
+                BlurBars.unclipAncestors(this.input);
+            }
+            if (this.spacer != null) {
+                BlurBars.unclipAncestors(this.spacer);
             }
             updateStyle();
             applyBackgrounds();
@@ -816,6 +827,7 @@ public final class BlurBars {
             }
             if (this.style.update(this.header, this.palette)) {
                 redraw();
+                applyThemeChrome();
             }
         }
 
@@ -824,7 +836,7 @@ public final class BlurBars {
             this.bottom.invalidate();
         }
 
-        private void applyBackgrounds() {
+        private void ensureBackgrounds() {
             Drawable background = this.header.getBackground();
             ProgressiveBlurDrawable progressiveBlurDrawable = this.headerBlur;
             if (background != progressiveBlurDrawable) {
@@ -843,8 +855,6 @@ public final class BlurBars {
                 if (viewFind != null && viewFind.getBackground() != null) {
                     viewFind.setBackground(null);
                 }
-                BlurBars.smoothInputPill(this.input, this.style);
-                BlurBars.tintInputIcons(this.input, this.style);
             }
             View view2 = this.spacer;
             if (view2 != null) {
@@ -857,8 +867,20 @@ public final class BlurBars {
                     this.spacer.setBackground(progressiveBlurDrawable3);
                 }
             }
+        }
+
+        private void applyThemeChrome() {
+            if (this.input != null) {
+                BlurBars.smoothInputPill(this.input, this.style);
+                BlurBars.tintInputIcons(this.input, this.style);
+            }
             BlurBars.tintHeader(this.header, this.style);
             ChatPanels.apply(this.decor, this.skin, this.refresh);
+        }
+
+        private void applyBackgrounds() {
+            ensureBackgrounds();
+            applyThemeChrome();
         }
 
         private void layoutTopFade() {
@@ -878,7 +900,7 @@ public final class BlurBars {
                 this.content.getOverlay().remove(this.bottomFade);
                 return;
             }
-            int[] iArr = new int[2];
+            int[] iArr = this.tmpLoc;
             this.input.getLocationInWindow(iArr);
             int i = iArr[1];
             this.content.getLocationInWindow(iArr);
@@ -898,25 +920,8 @@ public final class BlurBars {
 
         void onPreDraw() {
             View view;
-            View view2 = this.skin;
-            if (view2 != null) {
-                BlurBars.prepareChatSkin(view2);
-            }
             updateStyle();
-            View view3 = this.header;
-            if (view3 != null) {
-                BlurBars.unclipAncestors(view3);
-            }
-            View view4 = this.input;
-            if (view4 != null) {
-                BlurBars.unclipAncestors(view4);
-            }
-            View view5 = this.spacer;
-            if (view5 != null) {
-                BlurBars.unclipAncestors(view5);
-            }
-            applyBackgrounds();
-            extendList();
+            ensureBackgrounds();
             if (!BlurBars.powerSave()) {
                 View view6 = this.skin;
                 boolean z = view6 != null && view6.isDirty();
@@ -1059,7 +1064,6 @@ public final class BlurBars {
             roundClip(viewFind);
         }
         if (viewFind2 != null) {
-            roundClip(viewFind2);
             fillPill(viewFind2, chromeStyle.bottomDarkIcons ? INPUT_PILL_FILL : INPUT_PILL_FILL_DARK);
         }
         if (viewFind != null) {
@@ -1091,26 +1095,33 @@ public final class BlurBars {
     }
 
     private static void fillPill(View view, int i) {
-        ImageView imageView;
-        ColorStateList imageTintList;
-        if (STROKE_CLEARED.put(view, Boolean.TRUE) == null) {
-            try {
-                view.getClass().getMethod("setOverwrappingDrawable", Drawable.class).invoke(view, null);
-            } catch (Throwable unused) {
-            }
+        try {
+            view.getClass().getMethod("setOverwrappingDrawable", Drawable.class).invoke(view, null);
+        } catch (Throwable unused) {
         }
-        if ((view instanceof ImageView) && ((imageTintList = (imageView = (ImageView) view).getImageTintList()) == null || imageTintList.getDefaultColor() != i)) {
-            imageView.setImageTintList(ColorStateList.valueOf(i));
-            imageView.setImageTintMode(PorterDuff.Mode.SRC_IN);
+        if (view instanceof ImageView) {
+            ImageView imageView = (ImageView) view;
+            if (imageView.getDrawable() != null) {
+                imageView.setImageDrawable(null);
+            }
+            if (imageView.getImageTintList() != null) {
+                imageView.setImageTintList(null);
+            }
         }
         Drawable background = view.getBackground();
+        GradientDrawable pill;
         if (background instanceof GradientDrawable) {
-            GradientDrawable gradientDrawable = (GradientDrawable) background;
-            ColorStateList color = Build.VERSION.SDK_INT >= 24 ? gradientDrawable.getColor() : null;
-            if (color == null || color.getDefaultColor() != i) {
-                gradientDrawable.setColor(i);
-                gradientDrawable.setStroke(0, 0);
-            }
+            pill = (GradientDrawable) background;
+        } else {
+            pill = new GradientDrawable();
+            pill.setShape(GradientDrawable.RECTANGLE);
+            pill.setCornerRadius(9999.0f);
+            pill.setStroke(0, 0);
+            view.setBackground(pill);
+        }
+        ColorStateList color = Build.VERSION.SDK_INT >= 24 ? pill.getColor() : null;
+        if (color == null || color.getDefaultColor() != i) {
+            pill.setColor(i);
         }
     }
 

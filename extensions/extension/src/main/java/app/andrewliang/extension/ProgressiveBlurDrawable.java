@@ -22,7 +22,7 @@ final class ProgressiveBlurDrawable extends Drawable {
     private static final int FADE_STEPS = 10;
     private static final float FULL_PART = 0.45f;
     private static final float MAX_RADIUS_DP = 22.0f;
-    static final String SHADER = "uniform shader content;\nuniform float2 size;\nuniform float2 dir;\nuniform float fromBottom;\nuniform float maxRadius;\nuniform float fullUntil;\nuniform float clearAt;\nhalf4 main(float2 p) {\n    float d = mix(p.y, size.y - p.y, fromBottom);\n    float t = clamp((d - fullUntil) / max(clearAt - fullUntil, 1.0), 0.0, 1.0);\n    float r = maxRadius * (1.0 - t * t * (3.0 - 2.0 * t));\n    if (r < 0.5) {\n        return content.eval(p);\n    }\n    float sigma = r * 0.5;\n    float4 sum = float4(0.0);\n    float total = 0.0;\n    for (int i = -12; i <= 12; i++) {\n        float o = float(i) * r / 12.0;\n        float w = exp(-0.5 * o * o / (sigma * sigma));\n        float2 q = clamp(p + dir * o, float2(0.0), size - float2(1.0));\n        sum += float4(content.eval(q)) * w;\n        total += w;\n    }\n    return half4(sum / total);\n}\n";
+    static final String SHADER = "uniform shader content;\nuniform float2 size;\nuniform float2 dir;\nuniform float fromBottom;\nuniform float maxRadius;\nuniform float fullUntil;\nuniform float clearAt;\nhalf4 main(float2 p) {\n    float d = mix(p.y, size.y - p.y, fromBottom);\n    float t = clamp((d - fullUntil) / max(clearAt - fullUntil, 1.0), 0.0, 1.0);\n    float r = maxRadius * (1.0 - t * t * (3.0 - 2.0 * t));\n    if (r < 0.5) {\n        return content.eval(p);\n    }\n    float sigma = r * 0.5;\n    float4 sum = float4(0.0);\n    float total = 0.0;\n    for (int i = -6; i <= 6; i++) {\n        float o = float(i) * r / 6.0;\n        float w = exp(-0.5 * o * o / (sigma * sigma));\n        float2 q = clamp(p + dir * o, float2(0.0), size - float2(1.0));\n        sum += float4(content.eval(q)) * w;\n        total += w;\n    }\n    return half4(sum / total);\n}\n";
     static final float TOP_FADE_DP = 145.0f;
     static View drawingHost;
     static boolean recording;
@@ -121,6 +121,7 @@ final class ProgressiveBlurDrawable extends Drawable {
         private final View[] pieces;
         private final View[] sources;
         boolean fadeAbove = true;
+        boolean recordedThisFrame;
         private final Rect union = new Rect();
         private final Rect part = new Rect();
         private final int[] location = new int[2];
@@ -137,6 +138,7 @@ final class ProgressiveBlurDrawable extends Drawable {
         }
 
         void invalidate() {
+            this.recordedThisFrame = false;
             for (View view : this.pieces) {
                 if (view != null) {
                     view.invalidate();
@@ -289,39 +291,40 @@ final class ProgressiveBlurDrawable extends Drawable {
 
         boolean draw(Region region, Canvas canvas, int i, int i2) {
             Rect rect = region.union;
-            this.node.setPosition(0, 0, i, i2);
-            RecordingCanvas recordingCanvasBeginRecording = this.node.beginRecording(i, i2);
-            ProgressiveBlurDrawable.recording = true;
-            try {
-                for (View view : region.sources) {
-                    record(recordingCanvasBeginRecording, view, rect);
+            boolean needRecord = !region.recordedThisFrame || i != this.effectWidth || i2 != this.effectHeight || !this.node.hasDisplayList();
+            if (needRecord) {
+                this.node.setPosition(0, 0, i, i2);
+                RecordingCanvas recordingCanvasBeginRecording = this.node.beginRecording(i, i2);
+                ProgressiveBlurDrawable.recording = true;
+                try {
+                    for (View view : region.sources) {
+                        record(recordingCanvasBeginRecording, view, rect);
+                    }
+                } finally {
+                    ProgressiveBlurDrawable.recording = false;
+                    this.node.endRecording();
                 }
-                ProgressiveBlurDrawable.recording = false;
-                this.node.endRecording();
-                if (this.effect == null || i != this.effectWidth || i2 != this.effectHeight) {
-                    this.effect = effect(region, i, i2);
-                    this.effectWidth = i;
-                    this.effectHeight = i2;
-                    this.mask.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));
-                    this.mask.setShader(new LinearGradient(0.0f, region.bottom ? i2 : 0.0f, 0.0f, region.bottom ? 0.0f : i2, new int[]{-16777216, -16777216, 0}, new float[]{0.0f, ProgressiveBlurDrawable.FULL_PART, 1.0f}, Shader.TileMode.CLAMP));
-                }
-                this.node.setRenderEffect(this.effect);
-                if (Build.VERSION.SDK_INT >= 33) {
-                    canvas.drawRenderNode(this.node);
-                } else {
-                    float f = i;
-                    float f2 = i2;
-                    int iSaveLayer = canvas.saveLayer(0.0f, 0.0f, f, f2, null);
-                    canvas.drawRenderNode(this.node);
-                    canvas.drawRect(0.0f, 0.0f, f, f2, this.mask);
-                    canvas.restoreToCount(iSaveLayer);
-                }
-                return true;
-            } catch (Throwable th) {
-                ProgressiveBlurDrawable.recording = false;
-                this.node.endRecording();
-                throw th;
+                region.recordedThisFrame = true;
             }
+            if (this.effect == null || i != this.effectWidth || i2 != this.effectHeight) {
+                this.effect = effect(region, i, i2);
+                this.effectWidth = i;
+                this.effectHeight = i2;
+                this.mask.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));
+                this.mask.setShader(new LinearGradient(0.0f, region.bottom ? i2 : 0.0f, 0.0f, region.bottom ? 0.0f : i2, new int[]{-16777216, -16777216, 0}, new float[]{0.0f, ProgressiveBlurDrawable.FULL_PART, 1.0f}, Shader.TileMode.CLAMP));
+            }
+            this.node.setRenderEffect(this.effect);
+            if (Build.VERSION.SDK_INT >= 33) {
+                canvas.drawRenderNode(this.node);
+            } else {
+                float f = i;
+                float f2 = i2;
+                int iSaveLayer = canvas.saveLayer(0.0f, 0.0f, f, f2, null);
+                canvas.drawRenderNode(this.node);
+                canvas.drawRect(0.0f, 0.0f, f, f2, this.mask);
+                canvas.restoreToCount(iSaveLayer);
+            }
+            return true;
         }
 
         private void record(Canvas canvas, View view, Rect rect) {
