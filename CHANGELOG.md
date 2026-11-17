@@ -1,3 +1,9 @@
+## [3.13.0-dev.3](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.2...v3.13.0-dev.3) (2026-11-17)
+
+### 🐛 Bug Fixes
+
+* **LINE:** fix input pill border/fill and optimize blur scroll performance ([e001691](https://github.com/Zionlion113/morphe-patches/commit/e001691e9bd19ac74b6cf3d06067f90021d72829))
+
 ## [3.13.0-dev.2](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.1...v3.13.0-dev.2) (2026-11-17)
 
 ### 🐛 Bug Fixes
