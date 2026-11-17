@@ -1,3 +1,9 @@
+## [3.13.0-dev.2](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.1...v3.13.0-dev.2) (2026-11-17)
+
+### 🐛 Bug Fixes
+
+* **LINE:** restore API 36 gate for scroll refresh rate and fix dark input pill fill/stroke ([63670e4](https://github.com/Zionlion113/morphe-patches/commit/63670e4793e7c078e90cb665bc2884a3d2ad0650))
+
 ## [3.13.0-dev.1](https://github.com/Zionlion113/morphe-patches/compare/v3.12.0...v3.13.0-dev.1) (2026-11-17)
 
 ### ✨ New Features
