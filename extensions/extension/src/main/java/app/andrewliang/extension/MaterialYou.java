@@ -20,6 +20,7 @@ import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.LayerDrawable;
+import android.graphics.drawable.NinePatchDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
@@ -121,6 +122,7 @@ final class MaterialYou {
     private static final Map<Set<?>, Integer> COMPOSE_SET_KIND = new ConcurrentHashMap<>();
 
     private static volatile Context appContext;
+    private static volatile Boolean lastActivityDark;
     private static volatile String lastActiveChatId = "";
     private static volatile String lastActiveChatTitle = "";
     private static volatile WallpaperPalette lastActiveWallpaperPalette;
@@ -137,8 +139,20 @@ final class MaterialYou {
         return true;
     }
 
+    static void syncActivityUiMode(View view) {
+        if (view != null) {
+            lastActivityDark = isNightResources(view.getResources());
+        }
+    }
+
+    private static boolean isNightResources(Resources res) {
+        return res != null
+                && (res.getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+    }
+
     static void onConfigurationChanged() {
-        Palette.cached = null;
+        Palette.cachedLight = null;
+        Palette.cachedDark = null;
         BUBBLE_APPLIED.clear();
         NAV_APPLIED.clear();
         BADGE_APPLIED.clear();
@@ -146,6 +160,7 @@ final class MaterialYou {
     }
 
     static void onActivityResumed(View decorView) {
+        syncActivityUiMode(decorView);
         BUBBLE_APPLIED.clear();
         BUBBLE_BG_REF.clear();
         NAV_APPLIED.clear();
@@ -158,6 +173,8 @@ final class MaterialYou {
     static final class Palette {
         final boolean dark;
         final int accent;
+        final int pillBg;
+        final int onPill;
         final int sendBubble;
         final int receiveBubble;
         final int navBarBg;
@@ -170,6 +187,8 @@ final class MaterialYou {
         private Palette(
                 boolean dark,
                 int accent,
+                int pillBg,
+                int onPill,
                 int sendBubble,
                 int receiveBubble,
                 int navBarBg,
@@ -181,6 +200,8 @@ final class MaterialYou {
         ) {
             this.dark = dark;
             this.accent = accent;
+            this.pillBg = pillBg;
+            this.onPill = onPill;
             this.sendBubble = sendBubble;
             this.receiveBubble = receiveBubble;
             this.navBarBg = navBarBg;
@@ -191,65 +212,181 @@ final class MaterialYou {
             this.blurSurface = blurSurface;
         }
 
-        static volatile Palette cached;
-        private static volatile boolean cachedDark;
+        static volatile Palette cachedLight;
+        static volatile Palette cachedDark;
         private static volatile int cachedKeyColor;
 
         static Palette of(Context context) {
+            boolean dark;
+            if (context != null && context != appContext) {
+                dark = isNightResources(context.getResources());
+                if (activityOf(context) != null) {
+                    lastActivityDark = dark;
+                }
+            } else {
+                Boolean actDark = lastActivityDark;
+                dark = actDark != null ? actDark : (context != null && isNightResources(context.getResources()));
+            }
+            return forMode(context != null ? context : appContext, dark);
+        }
+
+        static Palette of(Resources res) {
+            boolean dark;
+            if (res != null) {
+                dark = isNightResources(res);
+                lastActivityDark = dark;
+            } else {
+                Boolean actDark = lastActivityDark;
+                dark = actDark != null && actDark;
+            }
+            return forMode(appContext, dark);
+        }
+
+        static Palette forCurrentUi() {
+            Boolean actDark = lastActivityDark;
+            boolean dark = actDark != null
+                    ? actDark
+                    : (appContext != null && isNightResources(appContext.getResources()));
+            return forMode(appContext, dark);
+        }
+
+        private static Palette forMode(Context context, boolean dark) {
             if (context == null) {
                 context = appContext;
             }
-            boolean dark = context != null && (context.getResources().getConfiguration().uiMode
-                    & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
             if (context != null && Build.VERSION.SDK_INT >= 31) {
                 try {
                     int a1_500 = context.getColor(android.R.color.system_accent1_500);
-                    Palette hit = cached;
-                    if (hit != null && cachedDark == dark && cachedKeyColor == a1_500) {
+                    if (cachedKeyColor != a1_500) {
+                        cachedLight = null;
+                        cachedDark = null;
+                        cachedKeyColor = a1_500;
+                    }
+                    Palette hit = dark ? cachedDark : cachedLight;
+                    if (hit != null) {
                         return hit;
                     }
                     Palette created;
                     if (dark) {
                         int a1_200 = context.getColor(android.R.color.system_accent1_200);
-                        int a1_300 = context.getColor(android.R.color.system_accent1_300);
                         int a1_700 = context.getColor(android.R.color.system_accent1_700);
                         int a1_800 = context.getColor(android.R.color.system_accent1_800);
                         int a1_900 = context.getColor(android.R.color.system_accent1_900);
+                        int a3_200 = context.getColor(android.R.color.system_accent3_200);
                         int n1_900 = context.getColor(android.R.color.system_neutral1_900);
                         int n2_300 = context.getColor(android.R.color.system_neutral2_300);
                         int n2_800 = context.getColor(android.R.color.system_neutral2_800);
                         int navBg = blend(n1_900, a1_800, 0.24f);
                         int blur = blend(n1_900, a1_900, 0.35f);
-                        created = new Palette(true, a1_200, a1_700, n2_800, navBg, a1_200, n2_300, a1_300, a1_900, blur);
+                        int hiBg = tuneDarkHighlight(a1_200, a3_200);
+                        int onHi = tuneDarkOnHighlight(a1_900);
+                        created = new Palette(true, hiBg, hiBg, onHi, a1_700, n2_800, navBg, hiBg, n2_300, hiBg, onHi, blur);
+                        cachedDark = created;
                     } else {
                         int a1_100 = context.getColor(android.R.color.system_accent1_100);
                         int a1_600 = context.getColor(android.R.color.system_accent1_600);
                         int a2_50 = context.getColor(android.R.color.system_accent2_50);
                         int a2_100 = context.getColor(android.R.color.system_accent2_100);
+                        int a3_600 = context.getColor(android.R.color.system_accent3_600);
                         int n1_50 = context.getColor(android.R.color.system_neutral1_50);
                         int n2_500 = context.getColor(android.R.color.system_neutral2_500);
                         int navBg = blend(n1_50, a2_100, 0.55f);
                         int recv = blend(n1_50, a2_50, 0.65f);
-                        created = new Palette(false, a1_600, a1_100, recv, navBg, a1_600, n2_500, a1_500, 0xFFFFFFFF, navBg);
+                        int pillBg = tuneLightHighlight(a1_600, a3_600);
+                        int badgeBg = tuneLightHighlight(a1_500, a3_600);
+                        created = new Palette(false, pillBg, pillBg, 0xFFFFFFFF, a1_100, recv, navBg, pillBg, n2_500, badgeBg, 0xFFFFFFFF, navBg);
+                        cachedLight = created;
                     }
-                    cachedDark = dark;
-                    cachedKeyColor = a1_500;
-                    cached = created;
                     return created;
                 } catch (Throwable ignored) {
                 }
             }
-            Palette hit = cached;
-            if (hit != null && cachedDark == dark && cachedKeyColor == 0) {
+            if (cachedKeyColor != 0) {
+                cachedLight = null;
+                cachedDark = null;
+                cachedKeyColor = 0;
+            }
+            Palette hit = dark ? cachedDark : cachedLight;
+            if (hit != null) {
                 return hit;
             }
             Palette created = dark
-                    ? new Palette(true, 0xFFA8C7FA, 0xFF0842A0, 0xFF282A2F, 0xFF1B2029, 0xFFA8C7FA, 0xFFB0B5BE, 0xFF8AB4F8, 0xFF062E6F, 0xFF181C24)
-                    : new Palette(false, 0xFF1A73E8, 0xFFD3E3FD, 0xFFF0F4FA, 0xFFEBF2FC, 0xFF1A73E8, 0xFF5F6368, 0xFF1A73E8, 0xFFFFFFFF, 0xFFEBF2FC);
-            cachedDark = dark;
-            cachedKeyColor = 0;
-            cached = created;
+                    ? new Palette(true, 0xFFA8C7FA, 0xFFA8C7FA, 0xFF062E6F, 0xFF0842A0, 0xFF282A2F, 0xFF1B2029, 0xFFA8C7FA, 0xFFB0B5BE, 0xFF8AB4F8, 0xFF062E6F, 0xFF181C24)
+                    : new Palette(false, 0xFF1A73E8, 0xFF1A73E8, 0xFFFFFFFF, 0xFFD3E3FD, 0xFFF0F4FA, 0xFFEBF2FC, 0xFF1A73E8, 0xFF5F6368, 0xFF1A73E8, 0xFFFFFFFF, 0xFFEBF2FC);
+            if (dark) {
+                cachedDark = created;
+            } else {
+                cachedLight = created;
+            }
             return created;
+        }
+
+        private static int tuneLightHighlight(int primary, int tertiary) {
+            float[] hsv = new float[3];
+            Color.colorToHSV(primary | 0xFF000000, hsv);
+            if (hsv[1] < 0.05f && tertiary != 0) {
+                float[] tHsv = new float[3];
+                Color.colorToHSV(tertiary | 0xFF000000, tHsv);
+                if (tHsv[1] >= 0.05f) {
+                    hsv[0] = tHsv[0];
+                    hsv[1] = tHsv[1];
+                }
+            }
+            if (hsv[1] >= 0.04f) {
+                if (hsv[1] < 0.34f) {
+                    hsv[1] = Math.min(0.38f, hsv[1] * 2.2f + 0.11f);
+                }
+                hsv[2] = Math.min(hsv[2], 0.56f);
+                int candidate = Color.HSVToColor(hsv) | 0xFF000000;
+                while (Color.luminance(candidate) > 0.16f && hsv[2] > 0.18f) {
+                    hsv[2] -= 0.03f;
+                    candidate = Color.HSVToColor(hsv) | 0xFF000000;
+                }
+                return candidate;
+            }
+            // Pure greyscale wallpaper: crisp neutral-800 charcoal so #FFFFFF text exceeds 9:1 contrast
+            hsv[2] = Math.min(hsv[2], 0.24f);
+            int candidate = Color.HSVToColor(hsv) | 0xFF000000;
+            while (Color.luminance(candidate) > 0.12f && hsv[2] > 0.14f) {
+                hsv[2] -= 0.03f;
+                candidate = Color.HSVToColor(hsv) | 0xFF000000;
+            }
+            return candidate;
+        }
+
+        private static int tuneDarkHighlight(int primary, int tertiary) {
+            float[] hsv = new float[3];
+            Color.colorToHSV(primary | 0xFF000000, hsv);
+            if (hsv[1] < 0.05f && tertiary != 0) {
+                float[] tHsv = new float[3];
+                Color.colorToHSV(tertiary | 0xFF000000, tHsv);
+                if (tHsv[1] >= 0.05f) {
+                    hsv[0] = tHsv[0];
+                    hsv[1] = tHsv[1];
+                }
+            }
+            if (hsv[1] >= 0.04f && hsv[1] < 0.22f) {
+                hsv[1] = Math.min(0.28f, hsv[1] * 1.8f + 0.06f);
+            }
+            hsv[2] = Math.max(hsv[2], 0.84f);
+            int candidate = Color.HSVToColor(hsv) | 0xFF000000;
+            while (Color.luminance(candidate) < 0.48f && hsv[2] < 0.96f) {
+                hsv[2] += 0.03f;
+                candidate = Color.HSVToColor(hsv) | 0xFF000000;
+            }
+            return candidate;
+        }
+
+        private static int tuneDarkOnHighlight(int darkTone) {
+            float[] hsv = new float[3];
+            Color.colorToHSV(darkTone | 0xFF000000, hsv);
+            hsv[2] = Math.min(hsv[2], 0.22f);
+            int candidate = Color.HSVToColor(hsv) | 0xFF000000;
+            while (Color.luminance(candidate) > 0.045f && hsv[2] > 0.08f) {
+                hsv[2] -= 0.03f;
+                candidate = Color.HSVToColor(hsv) | 0xFF000000;
+            }
+            return candidate;
         }
     }
 
@@ -298,7 +435,7 @@ final class MaterialYou {
             if (d == null) {
                 d = skinView.getBackground();
             }
-            if (d == null) {
+            if (d == null || d instanceof NinePatchDrawable) {
                 SKIN_WALLPAPER_CACHE.remove(skinView);
                 return null;
             }
@@ -524,12 +661,6 @@ final class MaterialYou {
                     classified = 2;
                 } else if ("onPrimaryAccentFill".equals(name)) {
                     classified = 3;
-                } else if ("primaryInverseFill".equals(name)) {
-                    classified = 4;
-                } else if ("primaryInverseFill_pressed".equals(name)) {
-                    classified = 5;
-                } else if ("onPrimaryInverseFill".equals(name)) {
-                    classified = 6;
                 }
             } catch (Throwable ignored) {
             }
@@ -539,7 +670,7 @@ final class MaterialYou {
         if (kind == 0) {
             return original;
         }
-        Palette palette = Palette.of(appContext);
+        Palette palette = Palette.of(res);
         switch (kind) {
             case 1:
                 return palette.badgeBg | 0xFF000000;
@@ -547,12 +678,6 @@ final class MaterialYou {
                 return blend(palette.badgeBg, 0xFF000000, 0.14f) | 0xFF000000;
             case 3:
                 return palette.onBadge | 0xFF000000;
-            case 4:
-                return palette.accent | 0xFF000000;
-            case 5:
-                return blend(palette.accent, 0xFF000000, 0.14f) | 0xFF000000;
-            case 6:
-                return isLightColor(palette.accent) ? 0xFF1A1C1E : 0xFFFFFFFF;
             default:
                 return original;
         }
@@ -570,20 +695,24 @@ final class MaterialYou {
             int classified = 0;
             try {
                 String desc = keys.toString();
-                if (desc.contains("messageCountText.background")
-                        || desc.contains("newbadge.background")
-                        || desc.contains("noti.background")
-                        || desc.contains("newDotIcon")) {
-                    classified = 1;
+                if (desc.contains("navigationBar.subTab")
+                        && (desc.contains("selected.background")
+                                || desc.contains("selected.text")
+                                || desc.contains("selected.icon"))) {
+                    classified = 10;
+                } else if (desc.contains("list.common.tab")
+                        && (desc.contains("folder.selected.background")
+                                || desc.contains("folder.selected.text")
+                                || desc.contains("folder.selected.icon"))) {
+                    classified = 10;
+                } else if (desc.contains("newDotIcon")
+                        || (desc.contains("list.common.tab") && desc.contains("new.icon"))) {
+                    classified = 11;
                 } else if (desc.contains("messageCountText")
-                        || desc.contains("newbadge.icon")
+                        || desc.contains("newbadge.")
+                        || desc.contains("noti.background")
                         || desc.contains("noti.text")) {
-                    classified = 2;
-                } else if (desc.contains("navigationBar.subTab") && desc.contains("selected.background")) {
-                    classified = 3;
-                } else if (desc.contains("navigationBar.subTab")
-                        && (desc.contains("selected.text") || desc.contains("selected.icon"))) {
-                    classified = 4;
+                    classified = 12;
                 }
             } catch (Throwable ignored) {
             }
@@ -593,16 +722,28 @@ final class MaterialYou {
         if (kind == 0) {
             return 0;
         }
-        Palette palette = Palette.of(appContext);
+        // Slot mapping from com.linecorp.line.compose.theme.i:
+        // 1 = icon/dot (h, i), 2 = background (b, f), 3 = stroke (c, d), 4 = text (j, k)
+        Palette palette = Palette.forCurrentUi();
         switch (kind) {
-            case 1:
+            case 10:
+                if (slot == 2) {
+                    return palette.pillBg | 0xFF000000;
+                }
+                if (slot == 4 || slot == 1) {
+                    return palette.onPill | 0xFF000000;
+                }
+                return 0;
+            case 11:
                 return (slot == 1 || slot == 2) ? (palette.badgeBg | 0xFF000000) : 0;
-            case 2:
-                return (slot == 3 || slot == 1) ? (palette.onBadge | 0xFF000000) : 0;
-            case 3:
-                return (slot == 2 || slot == 1) ? (palette.accent | 0xFF000000) : 0;
-            case 4:
-                return slot == 3 ? (isLightColor(palette.accent) ? 0xFF1A1C1E : 0xFFFFFFFF) : 0;
+            case 12:
+                if (slot == 2) {
+                    return palette.badgeBg | 0xFF000000;
+                }
+                if (slot == 4 || slot == 1) {
+                    return palette.onBadge | 0xFF000000;
+                }
+                return 0;
             default:
                 return 0;
         }
@@ -624,6 +765,7 @@ final class MaterialYou {
         if (decorView == null) {
             return;
         }
+        syncActivityUiMode(decorView);
         boolean styleNavBar = LineSettings.materialYouNavBar();
         boolean styleBadges = styleNavBar || LineSettings.materialYouTheme();
         if (!styleBadges) {
@@ -827,6 +969,7 @@ final class MaterialYou {
         if (decorView == null || header == null) {
             return;
         }
+        syncActivityUiMode(decorView);
         String chatTitle = "";
         View titleView = BlurBars.find(header, "header_title");
         if (titleView instanceof TextView && ((TextView) titleView).getText() != null) {
@@ -843,8 +986,10 @@ final class MaterialYou {
         if (skinView == null) {
             skinView = BlurBars.find(decorView, "chat_ui_main_skin_view");
         }
-        boolean dark = (decorView.getResources().getConfiguration().uiMode
-                & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        if (skinView != null) {
+            BlurBars.disableForceDarkChainIfLight(skinView);
+        }
+        boolean dark = isNightResources(decorView.getResources());
         WallpaperPalette wp = WallpaperPalette.fromSkin(skinView, dark);
         lastActiveWallpaperPalette = wp;
 

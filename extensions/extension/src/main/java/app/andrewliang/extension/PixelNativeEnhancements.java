@@ -103,15 +103,20 @@ final class PixelNativeEnhancements {
     }
 
     private static void applyColorModeAndCutout(Window window, String className) {
-        if (isMediaOrChatActivity(className)) {
+        if (isMediaViewerActivity(className)) {
             try {
-                // COLOR_MODE_HDR = 2 enables Ultra HDR & Display P3 on Super Actua / HDR displays
+                // COLOR_MODE_HDR = 2 enables Ultra HDR & Display P3 on full-screen media viewers
                 window.setColorMode(ActivityInfo.COLOR_MODE_HDR);
             } catch (Throwable ignored) {
                 try {
                     window.setColorMode(ActivityInfo.COLOR_MODE_WIDE_COLOR_GAMUT);
                 } catch (Throwable ignored2) {
                 }
+            }
+        } else if (isChatActivity(className)) {
+            try {
+                window.setColorMode(ActivityInfo.COLOR_MODE_WIDE_COLOR_GAMUT);
+            } catch (Throwable ignored) {
             }
         }
         if (Build.VERSION.SDK_INT >= 30 && isMediaViewerActivity(className)) {
@@ -126,10 +131,9 @@ final class PixelNativeEnhancements {
         }
     }
 
-    private static boolean isMediaOrChatActivity(String name) {
+    private static boolean isChatActivity(String name) {
         return name.contains("ChatHistory")
-                || name.contains("ChatSkin")
-                || isMediaViewerActivity(name);
+                || name.contains("ChatSkin");
     }
 
     private static boolean isMediaViewerActivity(String name) {

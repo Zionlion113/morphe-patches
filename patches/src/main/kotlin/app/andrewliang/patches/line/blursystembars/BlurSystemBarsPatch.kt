@@ -11,9 +11,11 @@ import app.morphe.patcher.extensions.InstructionExtensions.getInstruction
 import app.morphe.patcher.extensions.InstructionExtensions.replaceInstruction
 import app.morphe.patcher.patch.PatchException
 import app.morphe.patcher.patch.bytecodePatch
+import app.morphe.patcher.util.proxy.mutableTypes.MutableMethod
 import app.morphe.patcher.util.smali.ExternalLabel
 import com.android.tools.smali.dexlib2.AccessFlags
 import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.builder.MutableMethodImplementation
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.Instruction
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
@@ -21,6 +23,7 @@ import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction
 import com.android.tools.smali.dexlib2.iface.reference.FieldReference
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference
+import com.android.tools.smali.dexlib2.immutable.ImmutableMethod
 
 private const val EXTENSION = "Lapp/andrewliang/extension/BlurBars;"
 
@@ -249,43 +252,97 @@ val blurSystemBarsPatch = bytecodePatch(
         }
 
         mutableClassDefByOrNull("Lcom/linecorp/line/compose/theme/i;")?.let { composeThemeClass ->
-            for (method in composeThemeClass.methods) {
+            for (method in composeThemeClass.methods.toList()) {
+                // Slot mapping matches gh6.j fields:
+                // 1 = icon/dot (h, i), 2 = background (b, f), 3 = stroke (c, d), 4 = text (j, k)
                 val slot = when (method.name) {
-                    "c" -> 1
-                    "h" -> 2
-                    "j" -> 3
+                    "h", "i" -> 1
+                    "b", "f" -> 2
+                    "c", "d" -> 3
+                    "j", "k" -> 4
                     else -> 0
                 }
-                if (slot != 0 &&
-                    AccessFlags.STATIC.isSet(method.accessFlags) &&
-                    method.returnType == "J" &&
-                    method.parameterTypes.size == 4 &&
-                    method.parameterTypes[0] == "Ljava/util/Set;" &&
-                    method.parameterTypes[1] == "J" &&
-                    method.parameterTypes[2] != "J" &&
-                    method.parameterTypes[2] != "D" &&
-                    method.parameterTypes[3] == "I"
+                val paramTypes = method.parameterTypes.map { it.toString() }
+                if (slot == 0 ||
+                    !AccessFlags.STATIC.isSet(method.accessFlags) ||
+                    method.returnType != "J" ||
+                    paramTypes.isEmpty() ||
+                    paramTypes[0] != "Ljava/util/Set;"
                 ) {
-                    val impl = method.implementation
-                    if (impl != null && impl.registerCount >= 7) {
-                        val p0Reg = impl.registerCount - 5
-                        if (p0Reg <= 15) {
-                            val labelName = "morphe_compose_theme_${method.name}"
-                            method.addInstructionsWithLabels(
-                                0,
-                                """
-                                    const/4 v0, $slot
-                                    invoke-static { p0, v0 }, $EXTENSION->overrideComposeThemeColor(Ljava/util/Set;I)I
-                                    move-result v0
-                                    if-eqz v0, :$labelName
-                                    invoke-static { v0 }, $EXTENSION->argbToComposeColor(I)J
-                                    move-result-wide v0
-                                    return-wide v0
-                                """,
-                                ExternalLabel(labelName, method.getInstruction(0)),
-                            )
-                        }
-                    }
+                    continue
+                }
+                val impl = method.implementation ?: continue
+                val ins = paramTypes.sumOf { if (it == "J" || it == "D") 2 else 1 }
+                val labelName = "morphe_compose_theme_${method.name}"
+
+                if (impl.registerCount - ins >= 2 && impl.registerCount - ins <= 15) {
+                    method.addInstructionsWithLabels(
+                        0,
+                        """
+                            const/4 v0, $slot
+                            invoke-static { p0, v0 }, $EXTENSION->overrideComposeThemeColor(Ljava/util/Set;I)I
+                            move-result v0
+                            if-eqz v0, :$labelName
+                            invoke-static { v0 }, $EXTENSION->argbToComposeColor(I)J
+                            move-result-wide v0
+                            return-wide v0
+                        """,
+                        ExternalLabel(labelName, method.getInstruction(0)),
+                    )
+                } else {
+                    // Zero-local overloads (d, f, i, k): preserve original implementation untouched in a
+                    // private static backup method and replace entry point with an (ins + 2)-register wrapper.
+                    val backupName = "${method.name}\$morphe"
+                    val immutableParams = paramTypes.map { ImmutableMethodParameter(it, null, null) }
+                    val backupMethod = MutableMethod(
+                        ImmutableMethod(
+                            composeThemeClass.type,
+                            backupName,
+                            immutableParams,
+                            method.returnType,
+                            AccessFlags.PRIVATE.value or AccessFlags.STATIC.value,
+                            null,
+                            null,
+                            impl,
+                        ),
+                    )
+                    val wrapper = MutableMethod(
+                        ImmutableMethod(
+                            composeThemeClass.type,
+                            method.name,
+                            immutableParams,
+                            method.returnType,
+                            method.accessFlags,
+                            null,
+                            null,
+                            MutableMethodImplementation(ins + 2),
+                        ),
+                    )
+                    val descriptor = paramTypes.joinToString("")
+                    wrapper.addInstructions(
+                        0,
+                        """
+                            invoke-static/range { v2 .. v${ins + 1} }, ${composeThemeClass.type}->$backupName($descriptor)J
+                            move-result-wide v0
+                            return-wide v0
+                        """,
+                    )
+                    wrapper.addInstructionsWithLabels(
+                        0,
+                        """
+                            const/4 v0, $slot
+                            invoke-static { v2, v0 }, $EXTENSION->overrideComposeThemeColor(Ljava/util/Set;I)I
+                            move-result v0
+                            if-eqz v0, :$labelName
+                            invoke-static { v0 }, $EXTENSION->argbToComposeColor(I)J
+                            move-result-wide v0
+                            return-wide v0
+                        """,
+                        ExternalLabel(labelName, wrapper.getInstruction(0)),
+                    )
+                    composeThemeClass.methods.remove(method)
+                    composeThemeClass.methods.add(backupMethod)
+                    composeThemeClass.methods.add(wrapper)
                 }
             }
         }

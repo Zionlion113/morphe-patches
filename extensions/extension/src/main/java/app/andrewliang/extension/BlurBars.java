@@ -185,7 +185,14 @@ public final class BlurBars {
     }
 
     public static void layoutChatSkin(final ImageView imageView) {
-        if (!enabled() || imageView == null) {
+        if (imageView == null) {
+            return;
+        }
+        disableForceDarkIfLight(imageView);
+        if (imageView.getAlpha() < 1.0f) {
+            imageView.setAlpha(1.0f);
+        }
+        if (!enabled()) {
             return;
         }
         if (needsPrepare(imageView) && SKIN_PREPARE.put(imageView, Boolean.TRUE) == null) {
@@ -226,7 +233,11 @@ public final class BlurBars {
     }
 
     public static boolean prepareChatSkin(View view) {
-        if (!enabled() || view == null) {
+        if (view == null) {
+            return false;
+        }
+        disableForceDarkChainIfLight(view);
+        if (!enabled()) {
             return false;
         }
         clearWindowBackground(view);
@@ -243,6 +254,33 @@ public final class BlurBars {
             view = (View) parent;
         }
         return true;
+    }
+
+    static void disableForceDarkIfLight(View view) {
+        if (view != null && Build.VERSION.SDK_INT >= 29 && !night(view)) {
+            try {
+                if (view.isForceDarkAllowed()) {
+                    view.setForceDarkAllowed(false);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    static void disableForceDarkChainIfLight(View view) {
+        if (view == null || Build.VERSION.SDK_INT < 29 || night(view)) {
+            return;
+        }
+        View rootView = view.getRootView();
+        View cur = view;
+        while (cur != null) {
+            disableForceDarkIfLight(cur);
+            Object parent = cur.getParent();
+            if (!(parent instanceof View) || cur == rootView) {
+                break;
+            }
+            cur = (View) parent;
+        }
     }
 
     public static int adjustChatScrollOffset(View view, int position, int offset) {
@@ -929,6 +967,8 @@ public final class BlurBars {
                     BlurBars.hide(this.header.findViewById(iId));
                 }
             }
+            BlurBars.disableForceDarkIfLight(this.decor);
+            BlurBars.disableForceDarkIfLight(BlurBars.find(this.decor, "chat_ui_edge_to_edge_container"));
             View view = this.skin;
             if (view != null) {
                 BlurBars.prepareChatSkin(view);
