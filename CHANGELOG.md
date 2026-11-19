@@ -1,3 +1,9 @@
+## [3.13.0-dev.9](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.8...v3.13.0-dev.9) (2026-11-19)
+
+### 🐛 Bug Fixes
+
+* **LINE:** keep chat list above keyboard spacer and draw glass pill rim on container foreground ([205de71](https://github.com/Zionlion113/morphe-patches/commit/205de7152ac04a85a9f91c03ae433a9cd9ad10c3))
+
 ## [3.13.0-dev.8](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.7...v3.13.0-dev.8) (2026-11-19)
 
 ### 🐛 Bug Fixes
