@@ -1,3 +1,9 @@
+## [3.13.0-dev.10](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.9...v3.13.0-dev.10) (2026-11-19)
+
+### 🐛 Bug Fixes
+
+* **LINE:** fix chat scroll jump on message send and restore glass input rim ([8c80295](https://github.com/Zionlion113/morphe-patches/commit/8c80295344786880ecd236cd6f95f020d2c20870))
+
 ## [3.13.0-dev.9](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.8...v3.13.0-dev.9) (2026-11-19)
 
 ### 🐛 Bug Fixes
