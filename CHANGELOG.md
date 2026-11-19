@@ -1,3 +1,9 @@
+## [3.13.0-dev.5](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.4...v3.13.0-dev.5) (2026-11-19)
+
+### ✨ New Features
+
+* **LINE:** add translucent liquid glass input pill with specular rim for light and dark chats ([2ec6642](https://github.com/Zionlion113/morphe-patches/commit/2ec6642494ff3b7aaad813f3f33bed67665c24d8))
+
 ## [3.13.0-dev.4](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.3...v3.13.0-dev.4) (2026-11-19)
 
 ### 🐛 Bug Fixes
