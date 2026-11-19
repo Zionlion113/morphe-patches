@@ -1,3 +1,9 @@
+## [3.13.0-dev.11](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.10...v3.13.0-dev.11) (2026-11-19)
+
+### 🐛 Bug Fixes
+
+* **LINE:** simplify glass input rim to a single slender highlight layer ([390c173](https://github.com/Zionlion113/morphe-patches/commit/390c173788cd1d5c3009ea03c62d67bea9bfde2f))
+
 ## [3.13.0-dev.10](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.9...v3.13.0-dev.10) (2026-11-19)
 
 ### 🐛 Bug Fixes
