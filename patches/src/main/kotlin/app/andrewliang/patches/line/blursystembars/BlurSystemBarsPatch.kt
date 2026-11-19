@@ -209,6 +209,17 @@ val blurSystemBarsPatch = bytecodePatch(
             ExternalLabel("morphe_skin_layout", skinLayout.getInstruction(0)),
         )
 
+        val scrollWithOffset = ChatHistoryRecyclerScrollOffsetFingerprint.method
+        val scrollRegs = scrollWithOffset.implementation!!.registerCount
+        low(scrollRegs - 1)
+        scrollWithOffset.addInstructions(
+            0,
+            """
+                invoke-static { p0, p1, p2 }, $EXTENSION->adjustChatScrollOffset(Landroid/view/View;II)I
+                move-result p2
+            """,
+        )
+
         markLineSettingIncluded("blurSystemBars")
     }
 }

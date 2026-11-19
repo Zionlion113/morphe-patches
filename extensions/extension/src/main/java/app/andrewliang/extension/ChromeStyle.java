@@ -4,10 +4,10 @@ import android.graphics.Color;
 import android.view.View;
 
 final class ChromeStyle {
-    static final int BOT_DAY_PERF = 200;
+    static final int BOT_DAY_PERF = 172;
     static final int BOT_NIGHT_PERF = 176;
     static final int BOT_SAVER = 208;
-    static final int TOP_DAY_PERF = 184;
+    static final int TOP_DAY_PERF = 172;
     static final int TOP_NIGHT_PERF = 160;
     static final int TOP_SAVER = 192;
     boolean bottomDarkIcons;
@@ -21,54 +21,61 @@ final class ChromeStyle {
     }
 
     boolean update(View view, SkinPalette skinPalette) {
-        int i;
-        boolean zPrefersDarkIcons;
-        boolean zPrefersDarkIcons2;
+        int newTopRgb;
+        int newBottomRgb;
+        boolean newTopDarkIcons;
+        boolean newBottomDarkIcons;
         boolean zPowerSave = BlurBars.powerSave();
-        int i2 = BOT_NIGHT_PERF;
-        int i3 = TOP_NIGHT_PERF;
-        boolean z = true;
+        int newBottomAlpha = BOT_NIGHT_PERF;
+        int newTopAlpha = TOP_NIGHT_PERF;
         if (skinPalette != null && skinPalette.valid && LineSettings.blurAutoColor()) {
-            i = skinPalette.top;
-            i = skinPalette.bottom;
-            zPrefersDarkIcons = prefersDarkIcons(i);
-            zPrefersDarkIcons2 = prefersDarkIcons(i);
+            newTopRgb = skinPalette.top;
+            newBottomRgb = skinPalette.bottom;
+            newTopDarkIcons = prefersDarkIcons(newTopRgb);
+            newBottomDarkIcons = prefersDarkIcons(newBottomRgb);
             if (zPowerSave) {
-                i3 = TOP_SAVER;
-            } else if (zPrefersDarkIcons) {
-                i3 = TOP_DAY_PERF;
+                newTopAlpha = TOP_SAVER;
+            } else if (newTopDarkIcons) {
+                newTopAlpha = TOP_DAY_PERF;
             }
             if (zPowerSave) {
-                i2 = BOT_SAVER;
-            } else if (zPrefersDarkIcons2) {
-                i2 = BOT_DAY_PERF;
+                newBottomAlpha = BOT_SAVER;
+            } else if (newBottomDarkIcons) {
+                newBottomAlpha = BOT_DAY_PERF;
             }
+        } else if (zPowerSave) {
+            newTopRgb = -16777216;
+            newBottomRgb = -16777216;
+            newTopAlpha = TOP_SAVER;
+            newBottomAlpha = BOT_SAVER;
+            newTopDarkIcons = false;
+            newBottomDarkIcons = false;
+        } else if (!BlurBars.chromeNight(view)) {
+            newTopRgb = -1;
+            newBottomRgb = -1;
+            newTopAlpha = TOP_DAY_PERF;
+            newBottomAlpha = BOT_DAY_PERF;
+            newTopDarkIcons = true;
+            newBottomDarkIcons = true;
         } else {
-            i = -16777216;
-            if (zPowerSave) {
-                i2 = BOT_SAVER;
-                i3 = TOP_SAVER;
-            } else if (!BlurBars.chromeNight(view)) {
-                i = -1;
-                i = -1;
-                zPrefersDarkIcons = true;
-                zPrefersDarkIcons2 = true;
-                i2 = BOT_DAY_PERF;
-                i3 = TOP_DAY_PERF;
-            }
-            zPrefersDarkIcons = false;
-            zPrefersDarkIcons2 = false;
+            newTopRgb = -16777216;
+            newBottomRgb = -16777216;
+            newTopDarkIcons = false;
+            newBottomDarkIcons = false;
         }
-        if (i == this.topRgb && i == this.bottomRgb && i3 == this.topAlpha && i2 == this.bottomAlpha && zPrefersDarkIcons == this.topDarkIcons && zPrefersDarkIcons2 == this.bottomDarkIcons) {
-            z = false;
-        }
-        this.topRgb = i;
-        this.bottomRgb = i;
-        this.topAlpha = i3;
-        this.bottomAlpha = i2;
-        this.topDarkIcons = zPrefersDarkIcons;
-        this.bottomDarkIcons = zPrefersDarkIcons2;
-        return z;
+        boolean changed = newTopRgb != this.topRgb
+            || newBottomRgb != this.bottomRgb
+            || newTopAlpha != this.topAlpha
+            || newBottomAlpha != this.bottomAlpha
+            || newTopDarkIcons != this.topDarkIcons
+            || newBottomDarkIcons != this.bottomDarkIcons;
+        this.topRgb = newTopRgb;
+        this.bottomRgb = newBottomRgb;
+        this.topAlpha = newTopAlpha;
+        this.bottomAlpha = newBottomAlpha;
+        this.topDarkIcons = newTopDarkIcons;
+        this.bottomDarkIcons = newBottomDarkIcons;
+        return changed;
     }
 
     static boolean prefersDarkIcons(int i) {

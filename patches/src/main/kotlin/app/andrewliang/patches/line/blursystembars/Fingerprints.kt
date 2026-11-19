@@ -6,9 +6,13 @@ import app.morphe.patcher.methodCall
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
 import com.android.tools.smali.dexlib2.iface.reference.FieldReference
+import com.android.tools.smali.dexlib2.iface.reference.MethodReference
 
 private const val CHAT_SKIN_CLASS =
     "Lcom/linecorp/line/chat/ui/resources/message/message/list/skin/ChatHistorySkinImageView;"
+
+private const val CHAT_RECYCLER_VIEW_CLASS =
+    "Lcom/linecorp/line/chat/ui/resources/message/message/list/ChatHistoryMessageRecyclerView;"
 
 internal object EdgeToEdgeWindowFingerprint : Fingerprint(
     returnType = "V",
@@ -67,3 +71,17 @@ internal object ChatHistorySkinOnDrawFingerprint : Fingerprint(
         classDef.type == CHAT_SKIN_CLASS && method.name == "onDraw"
     },
 )
+
+internal object ChatHistoryRecyclerScrollOffsetFingerprint : Fingerprint(
+    returnType = "V",
+    parameters = listOf("I", "I"),
+    custom = { method, classDef ->
+        classDef.type == CHAT_RECYCLER_VIEW_CLASS &&
+            method.implementation?.instructions?.any { instruction ->
+                instruction.opcode == Opcode.INVOKE_VIRTUAL &&
+                    ((instruction as? ReferenceInstruction)?.reference as? MethodReference)?.definingClass ==
+                    "Landroidx/recyclerview/widget/LinearLayoutManager;"
+            } == true
+    },
+)
+
