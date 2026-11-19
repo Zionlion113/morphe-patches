@@ -695,18 +695,21 @@ final class MaterialYou {
             int classified = 0;
             try {
                 String desc = keys.toString();
-                if (desc.contains("navigationBar.subTab")
-                        && (desc.contains("selected.background")
-                                || desc.contains("selected.text")
-                                || desc.contains("selected.icon"))) {
+                if (desc.contains("componentKey=navigationBar.subTab,")
+                        && !desc.contains("unselected.")
+                        && (desc.contains("elementKey=selected.background)")
+                                || desc.contains("elementKey=selected.text)")
+                                || desc.contains("elementKey=selected.icon)"))) {
                     classified = 10;
-                } else if (desc.contains("list.common.tab")
-                        && (desc.contains("folder.selected.background")
-                                || desc.contains("folder.selected.text")
-                                || desc.contains("folder.selected.icon"))) {
+                } else if (desc.contains("componentKey=list.common.tab,")
+                        && !desc.contains("unselected.")
+                        && (desc.contains("elementKey=folder.selected.background)")
+                                || desc.contains("elementKey=folder.selected.text)")
+                                || desc.contains("elementKey=folder.selected.icon)"))) {
                     classified = 10;
                 } else if (desc.contains("newDotIcon")
-                        || (desc.contains("list.common.tab") && desc.contains("new.icon"))) {
+                        || (desc.contains("componentKey=list.common.tab,")
+                                && desc.contains("elementKey=new.icon)"))) {
                     classified = 11;
                 } else if (desc.contains("messageCountText")
                         || desc.contains("newbadge.")
