@@ -22,7 +22,7 @@ final class ProgressiveBlurDrawable extends Drawable {
     private static final int FADE_STEPS = 10;
     private static final float FULL_PART = 0.45f;
     private static final float MAX_RADIUS_DP = 22.0f;
-    static final String SHADER = "uniform shader content;\nuniform float2 size;\nuniform float2 dir;\nuniform float fromBottom;\nuniform float maxRadius;\nuniform float fullUntil;\nuniform float clearAt;\nhalf4 main(float2 p) {\n    float d = mix(p.y, size.y - p.y, fromBottom);\n    float t = clamp((d - fullUntil) / max(clearAt - fullUntil, 1.0), 0.0, 1.0);\n    float r = maxRadius * (1.0 - t * t * (3.0 - 2.0 * t));\n    if (r < 0.5) {\n        return content.eval(p);\n    }\n    float sigma = r * 0.5;\n    float4 sum = float4(0.0);\n    float total = 0.0;\n    for (int i = -6; i <= 6; i++) {\n        float o = float(i) * r / 6.0;\n        float w = exp(-0.5 * o * o / (sigma * sigma));\n        float2 q = clamp(p + dir * o, float2(0.0), size - float2(1.0));\n        sum += float4(content.eval(q)) * w;\n        total += w;\n    }\n    return half4(sum / total);\n}\n";
+    static final String FADE_SHADER = "uniform shader content;\nuniform float2 size;\nuniform float fromBottom;\nuniform float fullUntil;\nuniform float clearAt;\nhalf4 main(float2 p) {\n    float d = mix(p.y, size.y - p.y, fromBottom);\n    float t = clamp((d - fullUntil) / max(clearAt - fullUntil, 1.0), 0.0, 1.0);\n    float a = 1.0 - t * t * (3.0 - 2.0 * t);\n    return content.eval(p) * a;\n}\n";
     static final float TOP_FADE_DP = 145.0f;
     static View drawingHost;
     static boolean recording;
