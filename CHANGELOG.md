@@ -1,3 +1,9 @@
+## [3.13.0-dev.22](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.21...v3.13.0-dev.22) (2026-11-19)
+
+### 🐛 Bug Fixes
+
+* **LINE:** make PixelNativeEnhancements public to fix IllegalAccessError on dialogs and popups ([#3](https://github.com/Zionlion113/morphe-patches/issues/3)) ([bad84e4](https://github.com/Zionlion113/morphe-patches/commit/bad84e41918d80fc768f70a91500fb63c08e5658))
+
 ## [3.13.0-dev.21](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.20...v3.13.0-dev.21) (2026-11-19)
 
 ### ✨ New Features
