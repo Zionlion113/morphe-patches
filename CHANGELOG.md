@@ -1,3 +1,9 @@
+## [3.13.0-dev.15](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.14...v3.13.0-dev.15) (2026-11-19)
+
+### 🔧 Improvements
+
+* **LINE:** cache Material You palette, avoid 120Hz header shadow invalidation, skip main-tab scans in chats, and clear Compose tint when disabled ([ebd9b72](https://github.com/Zionlion113/morphe-patches/commit/ebd9b72f06d42bea6adc34fdba08239e5dee1707))
+
 ## [3.13.0-dev.14](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.13...v3.13.0-dev.14) (2026-11-19)
 
 ### 🐛 Bug Fixes

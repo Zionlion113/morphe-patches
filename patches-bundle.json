@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-19T07:35:40",
-  "description": "## [3.13.0-dev.14](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.13...v3.13.0-dev.14) (2026-11-19)\n\n### 🐛 Bug Fixes\n\n* **LINE:** tint all chat list unread badges and Compose header/folder pills with Material You, and make input pill more opaque ([d47a371](https://github.com/Zionlion113/morphe-patches/commit/d47a371c3ad66875a95f90df57089c187dbd6ded))",
-  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.14/patches-3.13.0-dev.14.mpp",
+  "created_at": "2026-11-19T07:47:02",
+  "description": "## [3.13.0-dev.15](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.14...v3.13.0-dev.15) (2026-11-19)\n\n### 🔧 Improvements\n\n* **LINE:** cache Material You palette, avoid 120Hz header shadow invalidation, skip main-tab scans in chats, and clear Compose tint when disabled ([ebd9b72](https://github.com/Zionlion113/morphe-patches/commit/ebd9b72f06d42bea6adc34fdba08239e5dee1707))",
+  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.15/patches-3.13.0-dev.15.mpp",
   "signature_download_url": "",
-  "version": "3.13.0-dev.14"
+  "version": "3.13.0-dev.15"
 }
