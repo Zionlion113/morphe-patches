@@ -1,3 +1,9 @@
+## [3.13.0-dev.20](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.19...v3.13.0-dev.20) (2026-11-19)
+
+### 🐛 Bug Fixes
+
+* **LINE:** fix extension memory leaks, API guards, and per-frame overhead ([#1](https://github.com/Zionlion113/morphe-patches/issues/1)) ([74f4489](https://github.com/Zionlion113/morphe-patches/commit/74f4489b419245d09dc711f50f97b6ee4a671449))
+
 ## [3.13.0-dev.19](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.18...v3.13.0-dev.19) (2026-11-19)
 
 ### ✨ New Features
