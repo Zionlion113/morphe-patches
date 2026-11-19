@@ -1,3 +1,13 @@
+## [3.13.0-dev.16](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.15...v3.13.0-dev.16) (2026-11-19)
+
+### 🐛 Bug Fixes
+
+* **LINE:** fix ComposeColorResolverFingerprint field count check and unwrap ChatHistoryRequestViewModel ([f2a04c8](https://github.com/Zionlion113/morphe-patches/commit/f2a04c86cfc6da56cda79234eb21a0ccbc6f0353))
+
+### ✨ New Features
+
+* **LINE:** support Material You Compose unread badges, chat wallpaper bubble colors, per-chat bubble fixes, and Google Play Adaptive Quality ([1761c6d](https://github.com/Zionlion113/morphe-patches/commit/1761c6dbcfa25f4b15e8bfad07d9c66271c90e1b))
+
 ## [3.13.0-dev.15](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.14...v3.13.0-dev.15) (2026-11-19)
 
 ### 🔧 Improvements
