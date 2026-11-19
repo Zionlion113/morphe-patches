@@ -1,3 +1,9 @@
+## [3.13.0-dev.6](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.5...v3.13.0-dev.6) (2026-11-19)
+
+### 🐛 Bug Fixes
+
+* **LINE:** keep chat message list padded above keyboard when sending messages ([9d70c29](https://github.com/Zionlion113/morphe-patches/commit/9d70c290d080d265a436bcbe48eab85c8b14b74a))
+
 ## [3.13.0-dev.5](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.4...v3.13.0-dev.5) (2026-11-19)
 
 ### ✨ New Features

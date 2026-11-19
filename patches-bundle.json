@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-19T03:55:24",
-  "description": "## [3.13.0-dev.5](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.4...v3.13.0-dev.5) (2026-11-19)\n\n### ✨ New Features\n\n* **LINE:** add translucent liquid glass input pill with specular rim for light and dark chats ([2ec6642](https://github.com/Zionlion113/morphe-patches/commit/2ec6642494ff3b7aaad813f3f33bed67665c24d8))",
-  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.5/patches-3.13.0-dev.5.mpp",
+  "created_at": "2026-11-19T04:01:05",
+  "description": "## [3.13.0-dev.6](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.5...v3.13.0-dev.6) (2026-11-19)\n\n### 🐛 Bug Fixes\n\n* **LINE:** keep chat message list padded above keyboard when sending messages ([9d70c29](https://github.com/Zionlion113/morphe-patches/commit/9d70c290d080d265a436bcbe48eab85c8b14b74a))",
+  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.6/patches-3.13.0-dev.6.mpp",
   "signature_download_url": "",
-  "version": "3.13.0-dev.5"
+  "version": "3.13.0-dev.6"
 }
