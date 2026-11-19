@@ -1,3 +1,9 @@
+## [3.13.0-dev.18](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.17...v3.13.0-dev.18) (2026-11-19)
+
+### 🐛 Bug Fixes
+
+* **LINE:** do not match unselected sub-tab text as selected pill text ([0b2a0e0](https://github.com/Zionlion113/morphe-patches/commit/0b2a0e0009df4df77a97f0fd946259340ed571e0))
+
 ## [3.13.0-dev.17](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.16...v3.13.0-dev.17) (2026-11-19)
 
 ### 🐛 Bug Fixes
