@@ -513,6 +513,8 @@ public final class BlurBars {
     }
 
     public static void watch(Activity activity) {
+        PixelNativeEnhancements.applyActivity(activity);
+        MaterialYou.attachChatSettingsRow(activity);
         Window window;
         if ((enabled() || MaterialYou.anyEnabled()) && (window = activity.getWindow()) != null) {
             if (enabled() && Build.VERSION.SDK_INT >= 29) {
@@ -583,10 +585,13 @@ public final class BlurBars {
         }
         if (MaterialYou.anyEnabled()) {
             MaterialYou.applyBottomNavBar(view);
+            MaterialYou.applyChatListBadges(view);
             if (!blurOn) {
                 View header = find(view, CHAT_HEADER);
                 if (header != null && header.isAttachedToWindow()) {
-                    MaterialYou.applyChatRoom(view, header, find(view, CHAT_LIST));
+                    View list = find(view, CHAT_LIST);
+                    MaterialYou.applyChatRoom(view, header, list);
+                    PixelNativeEnhancements.applyFoldableChatLayout(view, list, find(view, CHAT_INPUT));
                     if (LineSettings.chatHeaderWhite()) {
                         tintHeader(header, null);
                     }
@@ -600,12 +605,15 @@ public final class BlurBars {
         String[] strArr;
         if (MaterialYou.anyEnabled()) {
             MaterialYou.applyBottomNavBar(view);
+            MaterialYou.applyChatListBadges(view);
         }
         if (!enabled()) {
             if (MaterialYou.anyEnabled()) {
                 View header = find(view, CHAT_HEADER);
                 if (header != null && header.isAttachedToWindow()) {
-                    MaterialYou.applyChatRoom(view, header, find(view, CHAT_LIST));
+                    View list = find(view, CHAT_LIST);
+                    MaterialYou.applyChatRoom(view, header, list);
+                    PixelNativeEnhancements.applyFoldableChatLayout(view, list, find(view, CHAT_INPUT));
                     if (LineSettings.chatHeaderWhite()) {
                         tintHeader(header, null);
                     }
@@ -1039,6 +1047,7 @@ public final class BlurBars {
             ensureBackgrounds();
             extendList();
             MaterialYou.applyChatRoom(this.decor, this.header, this.list);
+            PixelNativeEnhancements.applyFoldableChatLayout(this.decor, this.list, this.input);
             if (LineSettings.chatHeaderWhite()) {
                 BlurBars.tintHeader(this.header, this.style);
             }
@@ -1508,7 +1517,7 @@ public final class BlurBars {
             this.host = host;
             this.darkIcons = darkIcons;
             this.rimPaint.setStyle(Paint.Style.STROKE);
-            this.rimPaint.setStrokeWidth(Math.max(1.2f, density * 1.0f));
+            this.rimPaint.setStrokeWidth(Math.max(1.0f, density * 0.75f));
         }
 
         void setDarkIcons(boolean darkIcons) {
@@ -1540,19 +1549,19 @@ public final class BlurBars {
             float inset = stroke * 0.5f + 0.5f;
             this.rimRect.set(inset, inset, w - inset, h - inset);
             if (this.darkIcons) {
-                // Light/default chat: single slender rim, bright white on top tapering to subtle cool shadow on bottom
+                // Light/default chat: very subtle, delicate glass highlight
                 this.rimPaint.setShader(new LinearGradient(
                     0.0f, 0.0f, 0.0f, h,
-                    new int[]{0xF2FFFFFF, 0x66FFFFFF, 0x22000000},
-                    new float[]{0.0f, 0.42f, 1.0f},
+                    new int[]{0x4EFFFFFF, 0x18FFFFFF, 0x0A000000},
+                    new float[]{0.0f, 0.38f, 1.0f},
                     Shader.TileMode.CLAMP
                 ));
             } else {
-                // Dark/photo chat: single slender Antigravity-style rim, bright white on top tapering to dim white on bottom
+                // Dark/photo chat: soft translucent top glint tapering gently to bottom
                 this.rimPaint.setShader(new LinearGradient(
                     0.0f, 0.0f, 0.0f, h,
-                    new int[]{0xE6FFFFFF, 0x7AFFFFFF, 0x24FFFFFF},
-                    new float[]{0.0f, 0.35f, 1.0f},
+                    new int[]{0x46FFFFFF, 0x16FFFFFF, 0x08FFFFFF},
+                    new float[]{0.0f, 0.36f, 1.0f},
                     Shader.TileMode.CLAMP
                 ));
             }

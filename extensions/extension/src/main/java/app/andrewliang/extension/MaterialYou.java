@@ -86,11 +86,15 @@ final class MaterialYou {
             0xFFFFFFFF, // Pure White
     };
 
-    private static final String PALETTE_BUTTON_TAG = "andrew_bubble_color_btn";
+    private static final String CHAT_SETTINGS_ROW_TAG = "andrew_chat_setting_bubble_row";
 
     private static final Map<View, Integer> BUBBLE_APPLIED = new WeakHashMap<>();
     private static final Map<View, Integer> NAV_APPLIED = new WeakHashMap<>();
+    private static final Map<View, Integer> BADGE_APPLIED = new WeakHashMap<>();
     private static final Map<View, String> CHAT_IDS = new WeakHashMap<>();
+
+    private static volatile String lastActiveChatId = "";
+    private static volatile String lastActiveChatTitle = "";
 
     private MaterialYou() {}
 
@@ -191,11 +195,28 @@ final class MaterialYou {
         if (bnbBg == null || !bnbBg.isAttachedToWindow()) {
             return;
         }
-        Palette palette = Palette.of(decorView.getContext());
+        Context ctx = decorView.getContext();
+        Palette palette = Palette.of(ctx);
 
-        if (!(bnbBg.getBackground() instanceof ColorDrawable)
-                || ((ColorDrawable) bnbBg.getBackground()).getColor() != palette.navBarBg) {
-            bnbBg.setBackground(new ColorDrawable(palette.navBarBg));
+        // Keep bnb_background_image at its native 49dp bar height (do NOT fill the 85dp parent
+        // main_tab_container, whose upper 36dp is transparent overhang for themed tab artwork).
+        Drawable bg = bnbBg.getBackground();
+        if (bg != null && !(bg instanceof ColorDrawable)) {
+            Integer prev = NAV_APPLIED.get(bnbBg);
+            if (prev == null || prev != palette.navBarBg || bg.getColorFilter() == null) {
+                bg.mutate().setColorFilter(palette.navBarBg, PorterDuff.Mode.SRC_IN);
+                NAV_APPLIED.put(bnbBg, palette.navBarBg);
+            }
+        } else {
+            int barHeight = BlurBars.dp(ctx, 49.0f);
+            ViewGroup.LayoutParams lp = bnbBg.getLayoutParams();
+            if (lp != null && lp.height != barHeight) {
+                lp.height = barHeight;
+                bnbBg.setLayoutParams(lp);
+            }
+            if (!(bg instanceof ColorDrawable) || ((ColorDrawable) bg).getColor() != palette.navBarBg) {
+                bnbBg.setBackground(new ColorDrawable(palette.navBarBg));
+            }
         }
         if (bnbBg instanceof ImageView) {
             ImageView img = (ImageView) bnbBg;
@@ -203,14 +224,7 @@ final class MaterialYou {
                 img.setColorFilter(palette.navBarBg, PorterDuff.Mode.SRC_IN);
             }
         }
-        if (bnbBg.getParent() instanceof View) {
-            View barContainer = (View) bnbBg.getParent();
-            Integer prev = NAV_APPLIED.get(barContainer);
-            if (prev == null || prev != palette.navBarBg) {
-                barContainer.setBackgroundColor(palette.navBarBg);
-                NAV_APPLIED.put(barContainer, palette.navBarBg);
-            }
-        }
+
         View sysNavBg = BlurBars.find(decorView, "main_navigation_bar_background");
         if (sysNavBg != null) {
             if (sysNavBg.getVisibility() != View.VISIBLE) {
@@ -254,6 +268,39 @@ final class MaterialYou {
         }
     }
 
+    /**
+     * Tints the green unread-count pills (e.g. "29", "5", "99+", "N") on the main chat list
+     * and search results with the Material You accent palette.
+     */
+    static void applyChatListBadges(View decorView) {
+        if (decorView == null || !LineSettings.materialYouTheme()) {
+            return;
+        }
+        View list = BlurBars.find(decorView, "chat_list_recycler_view");
+        if (!(list instanceof ViewGroup) || !list.isAttachedToWindow()) {
+            return;
+        }
+        Palette palette = Palette.of(decorView.getContext());
+        ViewGroup vg = (ViewGroup) list;
+        int count = vg.getChildCount();
+        for (int i = 0; i < count; i++) {
+            View row = vg.getChildAt(i);
+            if (row == null || row.getVisibility() != View.VISIBLE) {
+                continue;
+            }
+            tintBadge(BlurBars.find(row, "unread_message_count"), palette);
+            tintBadgeBg(BlurBars.find(row, "new_icon"), palette);
+            View sqLayout = BlurBars.find(row, "square_chat_unread_message_count_layout");
+            if (sqLayout != null && sqLayout.getVisibility() == View.VISIBLE) {
+                tintBadgeBg(sqLayout, palette);
+                View sqText = BlurBars.find(sqLayout, "square_chat_unread_message_count");
+                if (sqText instanceof TextView && ((TextView) sqText).getCurrentTextColor() != palette.onBadge) {
+                    ((TextView) sqText).setTextColor(palette.onBadge);
+                }
+            }
+        }
+    }
+
     private static void tintBadge(View view, Palette palette) {
         if (!(view instanceof TextView) || view.getVisibility() != View.VISIBLE) {
             return;
@@ -262,12 +309,19 @@ final class MaterialYou {
         if (tv.getCurrentTextColor() != palette.onBadge) {
             tv.setTextColor(palette.onBadge);
         }
-        Drawable bg = tv.getBackground();
+        tintBadgeBg(tv, palette);
+    }
+
+    private static void tintBadgeBg(View view, Palette palette) {
+        if (view == null || view.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        Drawable bg = view.getBackground();
         if (bg != null) {
-            Integer applied = NAV_APPLIED.get(tv);
-            if (applied == null || applied != palette.badgeBg) {
+            Integer applied = BADGE_APPLIED.get(view);
+            if (applied == null || applied != palette.badgeBg || bg.getColorFilter() == null) {
                 bg.mutate().setColorFilter(palette.badgeBg, PorterDuff.Mode.SRC_IN);
-                NAV_APPLIED.put(tv, palette.badgeBg);
+                BADGE_APPLIED.put(view, palette.badgeBg);
             }
         }
     }
@@ -277,10 +331,172 @@ final class MaterialYou {
             return;
         }
         String chatId = resolveChatId(decorView, header);
-        attachPaletteButton(decorView, header, listView, chatId);
+        if (chatId != null && !chatId.isEmpty()) {
+            lastActiveChatId = chatId;
+        }
+        View titleView = BlurBars.find(header, "header_title");
+        if (titleView instanceof TextView && ((TextView) titleView).getText() != null) {
+            lastActiveChatTitle = ((TextView) titleView).getText().toString();
+        }
         if (listView instanceof ViewGroup) {
             applyChatBubbles((ViewGroup) listView, chatId);
         }
+    }
+
+    /**
+     * Adds a native-styled "Chat bubble color" row to LINE's Chat Room Settings screen
+     * (opened from top-right menu -> Settings, alongside "Background").
+     */
+    static void attachChatSettingsRow(final Activity activity) {
+        if (activity == null || activity.isFinishing()) {
+            return;
+        }
+        String name = activity.getClass().getName();
+        if (!name.endsWith("ChatSettingActivity") && !name.endsWith("SquareChatSettingsActivity")) {
+            return;
+        }
+        View root = activity.findViewById(android.R.id.content);
+        if (!(root instanceof ViewGroup)) {
+            return;
+        }
+        final ViewGroup content = (ViewGroup) root;
+        if (content.findViewWithTag(CHAT_SETTINGS_ROW_TAG) != null) {
+            return;
+        }
+
+        final String chatId = resolveSettingsChatId(activity);
+        final String chatTitle = chatId.equals(lastActiveChatId) ? lastActiveChatTitle : "";
+
+        content.post(() -> {
+            if (activity.isFinishing() || content.findViewWithTag(CHAT_SETTINGS_ROW_TAG) != null) {
+                return;
+            }
+            Locale locale = activity.getResources().getConfiguration().getLocales().get(0);
+            boolean zh = locale != null && "zh".equals(locale.getLanguage());
+            Palette palette = Palette.of(activity);
+            int bgColor = palette.dark ? 0xFF111111 : 0xFFFFFFFF;
+            int titleColor = palette.dark ? 0xFFF2F2F2 : 0xFF111111;
+            int subColor = palette.dark ? 0xFF9E9E9E : 0xFF767676;
+
+            LinearLayout wrapper = new LinearLayout(activity);
+            wrapper.setTag(CHAT_SETTINGS_ROW_TAG);
+            wrapper.setOrientation(LinearLayout.VERTICAL);
+            wrapper.setBackgroundColor(bgColor);
+            wrapper.setElevation(BlurBars.dp(activity, 4.0f));
+
+            // Top hairline divider
+            View divider = new View(activity);
+            divider.setBackgroundColor(palette.dark ? 0x22FFFFFF : 0x1A000000);
+            wrapper.addView(divider, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, BlurBars.dp(activity, 0.7f))));
+
+            // Main clickable row matching LINE ChatSettingActivity style
+            LinearLayout row = new LinearLayout(activity);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            int padH = BlurBars.dp(activity, 20.0f);
+            int padV = BlurBars.dp(activity, 15.0f);
+            row.setPadding(padH, padV, padH, padV);
+            row.setClickable(true);
+            row.setFocusable(true);
+            android.util.TypedValue outValue = new android.util.TypedValue();
+            if (activity.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)) {
+                row.setBackgroundResource(outValue.resourceId);
+            }
+
+            LinearLayout textCol = new LinearLayout(activity);
+            textCol.setOrientation(LinearLayout.VERTICAL);
+            TextView titleTv = new TextView(activity);
+            titleTv.setText(zh ? "聊天氣泡顏色" : "Chat bubble color");
+            titleTv.setTextSize(16.0f);
+            titleTv.setTextColor(titleColor);
+            textCol.addView(titleTv);
+
+            TextView subTv = new TextView(activity);
+            subTv.setText(zh ? "自訂此聊天室的送出與接收氣泡顏色" : "Customize sent & received bubbles for this chat");
+            subTv.setTextSize(12.5f);
+            subTv.setTextColor(subColor);
+            LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            subLp.topMargin = BlurBars.dp(activity, 2.0f);
+            textCol.addView(subTv, subLp);
+
+            row.addView(textCol, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
+
+            // Two live color preview dots (Received & Sent)
+            int dotSize = BlurBars.dp(activity, 18.0f);
+            final View recvDot = new View(activity);
+            LinearLayout.LayoutParams dotLp1 = new LinearLayout.LayoutParams(dotSize, dotSize);
+            dotLp1.setMarginEnd(BlurBars.dp(activity, 6.0f));
+            row.addView(recvDot, dotLp1);
+
+            final View sendDot = new View(activity);
+            LinearLayout.LayoutParams dotLp2 = new LinearLayout.LayoutParams(dotSize, dotSize);
+            dotLp2.setMarginEnd(BlurBars.dp(activity, 10.0f));
+            row.addView(sendDot, dotLp2);
+
+            TextView chevron = new TextView(activity);
+            chevron.setText("›");
+            chevron.setTextSize(22.0f);
+            chevron.setTextColor(subColor);
+            row.addView(chevron);
+
+            final Runnable refreshDots = () -> {
+                Palette p = Palette.of(activity);
+                int cSend = LineSettings.chatBubbleSendColor(chatId);
+                int cRecv = LineSettings.chatBubbleReceiveColor(chatId);
+                styleColorDot(activity, recvDot, cRecv != 0 ? cRecv : p.receiveBubble);
+                styleColorDot(activity, sendDot, cSend != 0 ? cSend : p.sendBubble);
+            };
+            refreshDots.run();
+
+            row.setOnClickListener(v -> {
+                PixelNativeEnhancements.tick(v);
+                showBubbleColorDialog(activity, chatId, chatTitle, () -> {
+                    BUBBLE_APPLIED.clear();
+                    refreshDots.run();
+                });
+            });
+
+            wrapper.addView(row, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+            // Keep clear of system gesture/navigation bar
+            wrapper.setOnApplyWindowInsetsListener((v, insets) -> {
+                int bottomInset = Build.VERSION.SDK_INT >= 30
+                        ? insets.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom
+                        : insets.getSystemWindowInsetBottom();
+                v.setPadding(0, 0, 0, bottomInset);
+                return insets;
+            });
+
+            android.widget.FrameLayout.LayoutParams flp = new android.widget.FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.BOTTOM
+            );
+            content.addView(wrapper, flp);
+            wrapper.requestApplyInsets();
+        });
+    }
+
+    private static void styleColorDot(Context ctx, View dot, int color) {
+        GradientDrawable gd = new GradientDrawable();
+        gd.setShape(GradientDrawable.OVAL);
+        gd.setColor(color);
+        gd.setStroke(Math.max(1, BlurBars.dp(ctx, 1.0f)), 0x33888888);
+        dot.setBackground(gd);
+    }
+
+    private static String resolveSettingsChatId(Activity activity) {
+        Intent intent = activity.getIntent();
+        Bundle extras = intent == null ? null : intent.getExtras();
+        if (extras != null) {
+            for (String key : new String[]{"chatId", "chat_id", "mid", "squareChatMid", "EXTRA_CHAT_ID"}) {
+                String val = extras.getString(key);
+                if (val != null && !val.isEmpty()) {
+                    return val;
+                }
+            }
+        }
+        return (lastActiveChatId != null && !lastActiveChatId.isEmpty()) ? lastActiveChatId : "default_chat";
     }
 
     private static String resolveChatId(View decorView, View header) {
@@ -323,58 +539,6 @@ final class MaterialYou {
             }
         }
         return "default_chat";
-    }
-
-    private static void attachPaletteButton(final View decorView, final View header, final View listView, final String chatId) {
-        View mainGroup = BlurBars.find(header, "main_view_group");
-        if (mainGroup instanceof LinearLayout) {
-            LinearLayout container = (LinearLayout) mainGroup;
-            View existing = container.findViewWithTag(PALETTE_BUTTON_TAG);
-            if (existing == null) {
-                Context ctx = header.getContext();
-                int size = BlurBars.dp(ctx, 34.0f);
-                int pad = BlurBars.dp(ctx, 7.0f);
-                ImageView btn = new ImageView(ctx);
-                btn.setTag(PALETTE_BUTTON_TAG);
-                btn.setImageDrawable(new PaletteIconDrawable(ctx.getResources().getDisplayMetrics().density));
-                btn.setPadding(pad, pad, pad, pad);
-                btn.setScaleType(ImageView.ScaleType.FIT_CENTER);
-                btn.setContentDescription("Chat bubble color");
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
-                lp.gravity = Gravity.CENTER_VERTICAL;
-                lp.setMarginStart(BlurBars.dp(ctx, 4.0f));
-                btn.setLayoutParams(lp);
-                btn.setOnClickListener(v -> openColorPicker(decorView, header, listView, resolveChatId(decorView, header)));
-                container.addView(btn);
-            }
-        }
-        View titleView = BlurBars.find(header, "header_title");
-        if (titleView != null && titleView.getTag(0x52414E44) == null) {
-            titleView.setTag(0x52414E44, Boolean.TRUE);
-            titleView.setOnLongClickListener(v -> {
-                openColorPicker(decorView, header, listView, resolveChatId(decorView, header));
-                return true;
-            });
-        }
-    }
-
-    private static void openColorPicker(View decorView, View header, View listView, String chatId) {
-        Activity activity = activityOf(decorView.getContext());
-        if (activity == null || activity.isFinishing()) {
-            return;
-        }
-        String chatTitle = "";
-        View titleView = BlurBars.find(header, "header_title");
-        if (titleView instanceof TextView && ((TextView) titleView).getText() != null) {
-            chatTitle = ((TextView) titleView).getText().toString();
-        }
-        showBubbleColorDialog(activity, chatId, chatTitle, () -> {
-            BUBBLE_APPLIED.clear();
-            if (listView instanceof ViewGroup) {
-                applyChatBubbles((ViewGroup) listView, chatId);
-                listView.invalidate();
-            }
-        });
     }
 
     static void applyChatBubbles(ViewGroup listView, String chatId) {
@@ -530,19 +694,23 @@ final class MaterialYou {
                 ? (chatTitle.isEmpty() ? "自訂聊天氣泡顏色" : "氣泡顏色 · " + chatTitle)
                 : (chatTitle.isEmpty() ? "Custom chat bubble color" : "Bubble color · " + chatTitle);
 
-        new AlertDialog.Builder(activity)
+        AlertDialog dialog = new AlertDialog.Builder(activity)
                 .setTitle(title)
                 .setView(scroll)
                 .setPositiveButton(zh ? "套用" : "Apply", (d, w) -> {
+                    PixelNativeEnhancements.confirm(scroll);
                     LineSettings.setChatBubbleColors(chatId, selectedSend[0], selectedRecv[0]);
                     if (onChanged != null) onChanged.run();
                 })
                 .setNeutralButton(zh ? "重設預設" : "Reset", (d, w) -> {
+                    PixelNativeEnhancements.confirm(scroll);
                     LineSettings.clearChatBubbleColors(chatId);
                     if (onChanged != null) onChanged.run();
                 })
                 .setNegativeButton(zh ? "取消" : "Cancel", null)
-                .show();
+                .create();
+        PixelNativeEnhancements.applyDialogBlur(dialog);
+        dialog.show();
     }
 
     private static void stylePreviewBubble(TextView tv, int color, float radius) {
@@ -600,6 +768,7 @@ final class MaterialYou {
             circle.setLayoutParams(clp);
             swatches[i] = circle;
             circle.setOnClickListener(v -> {
+                PixelNativeEnhancements.tick(v);
                 target[0] = color;
                 refreshSwatchBorders(ctx, swatches, target[0], autoColor);
                 updatePreview.run();
@@ -691,52 +860,5 @@ final class MaterialYou {
             context = ((ContextWrapper) context).getBaseContext();
         }
         return null;
-    }
-
-    private static final class PaletteIconDrawable extends Drawable {
-        private final Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final RectF oval = new RectF();
-
-        PaletteIconDrawable(float density) {
-            this.strokePaint.setStyle(Paint.Style.STROKE);
-            this.strokePaint.setStrokeWidth(Math.max(1.5f, density * 1.6f));
-            this.strokePaint.setColor(0xFFFFFFFF);
-            this.dotPaint.setStyle(Paint.Style.FILL);
-            this.dotPaint.setColor(0xFFFFFFFF);
-        }
-
-        @Override
-        public void draw(Canvas canvas) {
-            Rect b = getBounds();
-            if (b.isEmpty()) return;
-            float cx = b.exactCenterX();
-            float cy = b.exactCenterY();
-            float r = Math.min(b.width(), b.height()) * 0.42f;
-            this.oval.set(cx - r, cy - r, cx + r, cy + r);
-            canvas.drawArc(this.oval, 35f, 300f, false, this.strokePaint);
-            float dotR = r * 0.14f;
-            canvas.drawCircle(cx - r * 0.42f, cy - r * 0.18f, dotR, this.dotPaint);
-            canvas.drawCircle(cx - r * 0.10f, cy - r * 0.45f, dotR, this.dotPaint);
-            canvas.drawCircle(cx + r * 0.32f, cy - r * 0.30f, dotR, this.dotPaint);
-            canvas.drawCircle(cx - r * 0.30f, cy + r * 0.30f, dotR, this.dotPaint);
-        }
-
-        @Override
-        public void setAlpha(int alpha) {
-            this.strokePaint.setAlpha(alpha);
-            this.dotPaint.setAlpha(alpha);
-        }
-
-        @Override
-        public void setColorFilter(ColorFilter colorFilter) {
-            this.strokePaint.setColorFilter(colorFilter);
-            this.dotPaint.setColorFilter(colorFilter);
-        }
-
-        @Override
-        public int getOpacity() {
-            return PixelFormat.TRANSLUCENT;
-        }
     }
 }

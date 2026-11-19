@@ -63,6 +63,10 @@ public final class LineSettings {
     static final String MATERIAL_YOU_NAV_BAR = "material_you_nav_bar";
     static final String CHAT_BUBBLE_SEND_PREFIX = "chat_bubble_send_";
     static final String CHAT_BUBBLE_RECV_PREFIX = "chat_bubble_recv_";
+    static final String PIXEL_ULTRA_HDR = "pixel_ultra_hdr";
+    static final String PIXEL_ARR_TOUCH_BOOST = "pixel_arr_touch_boost";
+    static final String PIXEL_FOLD_ADAPTIVE = "pixel_fold_adaptive";
+    static final String PIXEL_WINDOW_BLUR = "pixel_window_blur";
     static final String CHAT_HAPTICS = "chat_haptics";
     static final String PREDICTIVE_BACK = "predictive_back";
     static final String SCROLL_REFRESH_RATE = "scroll_refresh_rate";
@@ -223,6 +227,22 @@ public final class LineSettings {
 
     public static void clearChatBubbleColors(String chatId) {
         setChatBubbleColors(chatId, 0, 0);
+    }
+
+    public static boolean pixelUltraHdr() {
+        return isOn(PIXEL_ULTRA_HDR, true);
+    }
+
+    public static boolean pixelArrTouchBoost() {
+        return isOn(PIXEL_ARR_TOUCH_BOOST, true);
+    }
+
+    public static boolean pixelFoldAdaptive() {
+        return isOn(PIXEL_FOLD_ADAPTIVE, true);
+    }
+
+    public static boolean pixelWindowBlur() {
+        return isOn(PIXEL_WINDOW_BLUR, true);
     }
 
     public static boolean predictiveBack() {

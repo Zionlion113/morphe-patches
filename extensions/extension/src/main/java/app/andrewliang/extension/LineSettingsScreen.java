@@ -280,12 +280,28 @@ final class LineSettingsScreen {
                         true, null));
                 content.addView(toggle(activity, LineSettings.MATERIAL_YOU_THEME,
                         t("Material You dynamic colors", "Material You 動態配色"),
-                        t("Applies your Android wallpaper palette across LINE, including all chat bubbles and settings accents. Tap the palette icon in any chat header to customize that chat's bubble colors.", "將系統桌布的 Material You 個人調色套用到 LINE，包含所有聊天氣泡與設定強調色。點擊聊天室標題列的調色盤圖示可單獨自訂該聊天室的氣泡顏色。"),
+                        t("Applies your Android wallpaper palette across LINE, including all chat bubbles, unread badges, and settings accents. Open any chat's menu -> Settings -> Chat bubble color to customize that chat individually.", "將系統桌布的 Material You 個人調色套用到 LINE，包含所有聊天氣泡、未讀紅點/數字徽章與設定強調色。可於聊天室右上角選單 → 設定 → 聊天氣泡顏色單獨自訂各聊天室氣泡。"),
                         true, null));
                 content.addView(toggle(activity, LineSettings.MATERIAL_YOU_NAV_BAR,
                         t("Material You bottom navigation bar", "底部導覽列使用 Material You 配色"),
                         t("Colors the main screen bottom tabs (Home, Chats, etc.) with Material You instead of black.", "主畫面底部的分頁列（主頁、聊天等）改用 Material You 配色取代原本的黑色。"),
                         true, () -> restart.setVisibility(View.VISIBLE)));
+                content.addView(toggle(activity, LineSettings.PIXEL_ULTRA_HDR,
+                        t("Ultra HDR & Wide Color Gamut", "Ultra HDR 與廣色域顯示"),
+                        t("Enables HDR / Display P3 color mode and full cutout rendering on photo & video viewers (Pixel Pro / OLED displays).", "在圖片、影片瀏覽與聊天室啟用 HDR / 廣色域色彩模式與全螢幕挖孔延伸顯示。"),
+                        true, null));
+                content.addView(toggle(activity, LineSettings.PIXEL_ARR_TOUCH_BOOST,
+                        t("Adaptive Refresh Rate touch boost", "自適應更新率觸控即時升頻（Android 15+）"),
+                        t("Uses Android 15+ LTPO touch-boost so scrolling jumps smoothly to 120Hz on touch and idles cleanly. Disabled in Battery Saver.", "使用 Android 15+ 原生 LTPO 觸控升頻 API，觸碰瞬間平滑升至高更新率，靜止時自動降頻省電。"),
+                        true, null));
+                content.addView(toggle(activity, LineSettings.PIXEL_FOLD_ADAPTIVE,
+                        t("Foldable & large-screen adaptive chat", "摺疊機與大螢幕自適應排版"),
+                        t("Centers the chat list and input bar to a comfortable reading width when unfolded on Pixel Fold or tablets, while keeping wallpaper full-bleed.", "在 Pixel Fold 展開或平板大螢幕上自動置中聊天內容與輸入列至舒適閱讀寬度，同時保留全螢幕背景。"),
+                        true, null));
+                content.addView(toggle(activity, LineSettings.PIXEL_WINDOW_BLUR,
+                        t("Hardware dialog blur", "系統硬體加速毛玻璃視窗（Android 12+）"),
+                        t("Uses Android 12+ GPU cross-window blur behind settings and color picker dialogs.", "在設定與氣泡調色視窗後方啟用 Android 12+ 原生 GPU 視窗模糊。"),
+                        true, null));
                 content.addView(restart);
             }
             if (LineSettings.predictiveBackIncluded()) {
@@ -369,15 +385,20 @@ final class LineSettingsScreen {
         value.setText(labels[LineSettings.blurDayNight()]);
         value.setVisibility(View.VISIBLE);
         look.paint(value, look.secondary());
-        row.setOnClickListener(v -> new AlertDialog.Builder(activity)
-                .setTitle(t("Blur day/night", "模糊日夜模式"))
-                .setSingleChoiceItems(labels, LineSettings.blurDayNight(), (dialog, which) -> {
-                    LineSettings.setNumber(LineSettings.BLUR_DAY_NIGHT, which);
-                    value.setText(labels[which]);
-                    dialog.dismiss();
-                })
-                .setNegativeButton(t("Cancel", "取消"), null)
-                .show());
+        row.setOnClickListener(v -> {
+            PixelNativeEnhancements.tick(v);
+            AlertDialog dialog = new AlertDialog.Builder(activity)
+                    .setTitle(t("Blur day/night", "模糊日夜模式"))
+                    .setSingleChoiceItems(labels, LineSettings.blurDayNight(), (d, which) -> {
+                        LineSettings.setNumber(LineSettings.BLUR_DAY_NIGHT, which);
+                        value.setText(labels[which]);
+                        d.dismiss();
+                    })
+                    .setNegativeButton(t("Cancel", "取消"), null)
+                    .create();
+            PixelNativeEnhancements.applyDialogBlur(dialog);
+            dialog.show();
+        });
         return row;
     }
 
@@ -445,6 +466,7 @@ final class LineSettingsScreen {
         CheckedTextView toggle = row.findViewById(id(activity, "setting_switch", "id"));
         toggle.setChecked(LineSettings.isOn(key, defaultOn));
         container.setOnClickListener(v -> {
+            PixelNativeEnhancements.tick(v);
             boolean on = !toggle.isChecked();
             toggle.setChecked(on);
             LineSettings.set(key, on);
