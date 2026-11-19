@@ -97,8 +97,8 @@ internal object ComposeColorResolverFingerprint : Fingerprint(
         ),
     ),
     custom = { _, classDef ->
-        val fieldTypes = classDef.instanceFields.map { it.type }.toSet()
-        classDef.instanceFields.size == 2 &&
+        val fieldTypes = classDef.instanceFields.map { it.type }
+        fieldTypes.size == 2 &&
             "Landroid/content/res/Resources;" in fieldTypes &&
             "Landroid/content/res/Resources\$Theme;" in fieldTypes
     },

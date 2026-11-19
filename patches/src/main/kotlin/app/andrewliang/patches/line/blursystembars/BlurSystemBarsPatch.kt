@@ -262,6 +262,8 @@ val blurSystemBarsPatch = bytecodePatch(
                     method.parameterTypes.size == 4 &&
                     method.parameterTypes[0] == "Ljava/util/Set;" &&
                     method.parameterTypes[1] == "J" &&
+                    method.parameterTypes[2] != "J" &&
+                    method.parameterTypes[2] != "D" &&
                     method.parameterTypes[3] == "I"
                 ) {
                     val impl = method.implementation

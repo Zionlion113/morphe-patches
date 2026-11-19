@@ -1174,6 +1174,12 @@ final class MaterialYou {
                     if (res instanceof String && !((String) res).isEmpty()) {
                         return (String) res;
                     }
+                } else if (f.getType().getName().endsWith("ChatHistoryRequest")) {
+                    f.setAccessible(true);
+                    String nested = extractChatIdFromRequestObject(f.get(obj));
+                    if (nested != null && !nested.isEmpty()) {
+                        return nested;
+                    }
                 }
             }
         } catch (Throwable ignored) {
