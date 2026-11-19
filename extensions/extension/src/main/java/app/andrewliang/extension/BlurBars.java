@@ -842,6 +842,7 @@ public final class BlurBars {
             this.bottom.invalidate();
         }
 
+        private View pill;
         private View pillBg;
 
         private void ensureBackgrounds() {
@@ -863,12 +864,23 @@ public final class BlurBars {
                 if (viewFind != null && viewFind.getBackground() != null) {
                     viewFind.setBackground(null);
                 }
-                View pill = this.pillBg;
-                if (pill == null || !pill.isAttachedToWindow()) {
-                    pill = BlurBars.find(this.input, BlurBars.CHAT_INPUT_PILL_BG);
-                    this.pillBg = pill;
+                View pillContainer = this.pill;
+                if (pillContainer == null || !pillContainer.isAttachedToWindow()) {
+                    pillContainer = BlurBars.find(this.input, BlurBars.CHAT_INPUT_PILL);
+                    this.pill = pillContainer;
                 }
-                if (pill != null && (!(pill.getBackground() instanceof GlassPillDrawable) || (pill instanceof ImageView && ((ImageView) pill).getDrawable() != null))) {
+                View pillBgView = this.pillBg;
+                if (pillBgView == null || !pillBgView.isAttachedToWindow()) {
+                    pillBgView = BlurBars.find(this.input, BlurBars.CHAT_INPUT_PILL_BG);
+                    this.pillBg = pillBgView;
+                }
+                boolean needsPill = pillContainer != null
+                    && (!(pillContainer.getBackground() instanceof GlassPillDrawable)
+                        || (Build.VERSION.SDK_INT >= 23 && !(pillContainer.getForeground() instanceof GlassRimDrawable)));
+                boolean needsClearBg = pillBgView != null
+                    && (pillBgView.getBackground() != null
+                        || (pillBgView instanceof ImageView && ((ImageView) pillBgView).getDrawable() != null));
+                if (needsPill || needsClearBg) {
                     BlurBars.smoothInputPill(this.input, this.style);
                 }
             }
@@ -1077,16 +1089,12 @@ public final class BlurBars {
     public static void smoothInputPill(View view, ChromeStyle chromeStyle) {
         View viewFind = find(view, CHAT_INPUT_PILL);
         View viewFind2 = find(view, CHAT_INPUT_PILL_BG);
-        if (viewFind != null) {
-            if (viewFind.getBackground() != null) {
-                viewFind.setBackground(null);
-            }
-            roundClip(viewFind);
-        }
         if (viewFind2 != null) {
-            fillPill(viewFind2, chromeStyle.bottomDarkIcons);
+            clearPillBg(viewFind2);
         }
         if (viewFind != null) {
+            roundClip(viewFind);
+            stylePillContainer(viewFind, chromeStyle.bottomDarkIcons);
             centerEmojiButton(viewFind);
         }
         View viewFind3 = find(view, INPUT_EDIT);
@@ -1114,7 +1122,7 @@ public final class BlurBars {
         view.setClipToOutline(true);
     }
 
-    private static void fillPill(View view, boolean darkIcons) {
+    private static void clearPillBg(View view) {
         try {
             view.getClass().getMethod("setOverwrappingDrawable", Drawable.class).invoke(view, new Object[]{null});
         } catch (Throwable unused) {
@@ -1128,15 +1136,33 @@ public final class BlurBars {
                 imageView.setImageTintList(null);
             }
         }
-        Drawable background = view.getBackground();
-        GlassPillDrawable pill;
-        if (background instanceof GlassPillDrawable) {
-            pill = (GlassPillDrawable) background;
-        } else {
-            pill = new GlassPillDrawable(view.getResources().getDisplayMetrics().density, darkIcons);
-            view.setBackground(pill);
+        if (view.getBackground() != null) {
+            view.setBackground(null);
         }
-        pill.setDarkIcons(darkIcons);
+    }
+
+    private static void stylePillContainer(View view, boolean darkIcons) {
+        float density = view.getResources().getDisplayMetrics().density;
+        Drawable background = view.getBackground();
+        GlassPillDrawable fill;
+        if (background instanceof GlassPillDrawable) {
+            fill = (GlassPillDrawable) background;
+        } else {
+            fill = new GlassPillDrawable(darkIcons);
+            view.setBackground(fill);
+        }
+        fill.setDarkIcons(darkIcons);
+        if (Build.VERSION.SDK_INT >= 23) {
+            Drawable foreground = view.getForeground();
+            GlassRimDrawable rim;
+            if (foreground instanceof GlassRimDrawable) {
+                rim = (GlassRimDrawable) foreground;
+            } else {
+                rim = new GlassRimDrawable(density, darkIcons);
+                view.setForeground(rim);
+            }
+            rim.setDarkIcons(darkIcons);
+        }
     }
 
     public static void tintInputIcons(View view, ChromeStyle chromeStyle) {
@@ -1282,13 +1308,89 @@ public final class BlurBars {
     }
 
     private static final class GlassPillDrawable extends Drawable {
-        private final float density;
         private boolean darkIcons;
         private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final RectF fillRect = new RectF();
+        private int shaderWidth = -1;
+        private int shaderHeight = -1;
+        private boolean shaderDarkIcons;
+
+        GlassPillDrawable(boolean darkIcons) {
+            this.darkIcons = darkIcons;
+            this.fillPaint.setStyle(Paint.Style.FILL);
+        }
+
+        void setDarkIcons(boolean darkIcons) {
+            if (this.darkIcons != darkIcons) {
+                this.darkIcons = darkIcons;
+                this.shaderWidth = -1;
+                invalidateSelf();
+            }
+        }
+
+        private void ensureShader(Rect bounds) {
+            int w = bounds.width();
+            int h = bounds.height();
+            if (w == this.shaderWidth && h == this.shaderHeight && this.darkIcons == this.shaderDarkIcons) {
+                return;
+            }
+            this.shaderWidth = w;
+            this.shaderHeight = h;
+            this.shaderDarkIcons = this.darkIcons;
+            float left = bounds.left;
+            float top = bounds.top;
+            float right = bounds.right;
+            float bottom = bounds.bottom;
+            this.fillRect.set(left, top, right, bottom);
+            if (this.darkIcons) {
+                this.fillPaint.setShader(new LinearGradient(
+                    left, top, left, bottom,
+                    new int[]{0x8CFFFFFF, 0x60FFFFFF},
+                    null,
+                    Shader.TileMode.CLAMP
+                ));
+            } else {
+                this.fillPaint.setShader(new LinearGradient(
+                    left, top, left, bottom,
+                    new int[]{0x30FFFFFF, 0x16FFFFFF},
+                    null,
+                    Shader.TileMode.CLAMP
+                ));
+            }
+        }
+
+        @Override // android.graphics.drawable.Drawable
+        public void draw(Canvas canvas) {
+            Rect bounds = getBounds();
+            if (bounds.isEmpty()) {
+                return;
+            }
+            ensureShader(bounds);
+            float radius = Math.min(bounds.width(), bounds.height()) * 0.5f;
+            canvas.drawRoundRect(this.fillRect, radius, radius, this.fillPaint);
+        }
+
+        @Override // android.graphics.drawable.Drawable
+        public void setAlpha(int alpha) {
+            this.fillPaint.setAlpha(alpha);
+        }
+
+        @Override // android.graphics.drawable.Drawable
+        public void setColorFilter(ColorFilter colorFilter) {
+            this.fillPaint.setColorFilter(colorFilter);
+        }
+
+        @Override // android.graphics.drawable.Drawable
+        public int getOpacity() {
+            return PixelFormat.TRANSLUCENT;
+        }
+    }
+
+    private static final class GlassRimDrawable extends Drawable {
+        private boolean darkIcons;
         private final Paint bevelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint rimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint outerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final RectF fillRect = new RectF();
         private final RectF bevelRect = new RectF();
         private final RectF rimRect = new RectF();
         private final RectF outerRect = new RectF();
@@ -1296,16 +1398,14 @@ public final class BlurBars {
         private int shaderHeight = -1;
         private boolean shaderDarkIcons;
 
-        GlassPillDrawable(float density, boolean darkIcons) {
-            this.density = density;
+        GlassRimDrawable(float density, boolean darkIcons) {
             this.darkIcons = darkIcons;
-            this.fillPaint.setStyle(Paint.Style.FILL);
             this.bevelPaint.setStyle(Paint.Style.STROKE);
-            this.bevelPaint.setStrokeWidth(Math.max(2.5f, density * 2.4f));
+            this.bevelPaint.setStrokeWidth(Math.max(3.0f, density * 2.8f));
             this.rimPaint.setStyle(Paint.Style.STROKE);
-            this.rimPaint.setStrokeWidth(Math.max(1.5f, density * 1.2f));
+            this.rimPaint.setStrokeWidth(Math.max(1.8f, density * 1.3f));
             this.outerPaint.setStyle(Paint.Style.STROKE);
-            this.outerPaint.setStrokeWidth(Math.max(1.0f, density * 0.75f));
+            this.outerPaint.setStrokeWidth(Math.max(1.0f, density * 0.8f));
         }
 
         void setDarkIcons(boolean darkIcons) {
@@ -1329,7 +1429,6 @@ public final class BlurBars {
             float top = bounds.top;
             float right = bounds.right;
             float bottom = bounds.bottom;
-            this.fillRect.set(left, top, right, bottom);
             float outerStroke = this.outerPaint.getStrokeWidth();
             float outerInset = outerStroke * 0.5f + 0.5f;
             this.outerRect.set(left + outerInset, top + outerInset, right - outerInset, bottom - outerInset);
@@ -1340,55 +1439,43 @@ public final class BlurBars {
             float bevelInset = outerStroke + rimStroke + bevelStroke * 0.5f + 0.25f;
             this.bevelRect.set(left + bevelInset, top + bevelInset, right - bevelInset, bottom - bevelInset);
             if (this.darkIcons) {
-                // Light/default chat background: translucent frosted glass + inner thickness refraction + crisp white rim
-                this.fillPaint.setShader(new LinearGradient(
-                    left, top, left, bottom,
-                    new int[]{0x82FFFFFF, 0x54FFFFFF},
-                    null,
-                    Shader.TileMode.CLAMP
-                ));
+                // Light/default chat: subtle outer contrast + bright white top-lit rim + inner glass bevel
                 this.outerPaint.setShader(new LinearGradient(
                     left, top, left, bottom,
-                    new int[]{0x16000000, 0x28000000},
+                    new int[]{0x22000000, 0x38000000},
                     null,
                     Shader.TileMode.CLAMP
                 ));
                 this.rimPaint.setShader(new LinearGradient(
                     left, top, left, bottom,
-                    new int[]{0xFAFFFFFF, 0x7AFFFFFF, 0x1AFFFFFF},
+                    new int[]{0xFFFFFFFF, 0x99FFFFFF, 0x33FFFFFF},
                     new float[]{0.0f, 0.42f, 1.0f},
                     Shader.TileMode.CLAMP
                 ));
                 this.bevelPaint.setShader(new LinearGradient(
                     left, top, left, bottom,
-                    new int[]{0x70FFFFFF, 0x00FFFFFF, 0x00FFFFFF, 0x26FFFFFF},
-                    new float[]{0.0f, 0.32f, 0.76f, 1.0f},
+                    new int[]{0x80FFFFFF, 0x00FFFFFF, 0x00FFFFFF, 0x34FFFFFF},
+                    new float[]{0.0f, 0.34f, 0.76f, 1.0f},
                     Shader.TileMode.CLAMP
                 ));
             } else {
-                // Dark/photo chat background: smoky translucent glass + thick bevelled light refraction + bright top white rim
-                this.fillPaint.setShader(new LinearGradient(
-                    left, top, left, bottom,
-                    new int[]{0x30FFFFFF, 0x18FFFFFF},
-                    null,
-                    Shader.TileMode.CLAMP
-                ));
+                // Dark/photo chat: bright white top edge -> dimmer bottom edge + inner light refraction bevel
                 this.outerPaint.setShader(new LinearGradient(
                     left, top, left, bottom,
-                    new int[]{0x14000000, 0x30000000},
+                    new int[]{0x18000000, 0x34000000},
                     null,
                     Shader.TileMode.CLAMP
                 ));
                 this.rimPaint.setShader(new LinearGradient(
                     left, top, left, bottom,
-                    new int[]{0xCCFFFFFF, 0x4DFFFFFF, 0x1CFFFFFF},
+                    new int[]{0xEBFFFFFF, 0x66FFFFFF, 0x24FFFFFF},
                     new float[]{0.0f, 0.38f, 1.0f},
                     Shader.TileMode.CLAMP
                 ));
                 this.bevelPaint.setShader(new LinearGradient(
                     left, top, left, bottom,
-                    new int[]{0x52FFFFFF, 0x00FFFFFF, 0x00FFFFFF, 0x24FFFFFF},
-                    new float[]{0.0f, 0.30f, 0.78f, 1.0f},
+                    new int[]{0x64FFFFFF, 0x00FFFFFF, 0x00FFFFFF, 0x2CFFFFFF},
+                    new float[]{0.0f, 0.32f, 0.76f, 1.0f},
                     Shader.TileMode.CLAMP
                 ));
             }
@@ -1401,8 +1488,6 @@ public final class BlurBars {
                 return;
             }
             ensureShaders(bounds);
-            float radius = Math.min(bounds.width(), bounds.height()) * 0.5f;
-            canvas.drawRoundRect(this.fillRect, radius, radius, this.fillPaint);
             float bevelRadius = Math.max(0.0f, Math.min(this.bevelRect.width(), this.bevelRect.height()) * 0.5f);
             canvas.drawRoundRect(this.bevelRect, bevelRadius, bevelRadius, this.bevelPaint);
             float outerRadius = Math.max(0.0f, Math.min(this.outerRect.width(), this.outerRect.height()) * 0.5f);
@@ -1413,7 +1498,6 @@ public final class BlurBars {
 
         @Override // android.graphics.drawable.Drawable
         public void setAlpha(int alpha) {
-            this.fillPaint.setAlpha(alpha);
             this.bevelPaint.setAlpha(alpha);
             this.rimPaint.setAlpha(alpha);
             this.outerPaint.setAlpha(alpha);
@@ -1421,7 +1505,6 @@ public final class BlurBars {
 
         @Override // android.graphics.drawable.Drawable
         public void setColorFilter(ColorFilter colorFilter) {
-            this.fillPaint.setColorFilter(colorFilter);
             this.bevelPaint.setColorFilter(colorFilter);
             this.rimPaint.setColorFilter(colorFilter);
             this.outerPaint.setColorFilter(colorFilter);

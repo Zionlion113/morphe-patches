@@ -14,6 +14,7 @@ import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -110,6 +111,15 @@ final class ChatPanels {
         return i;
     }
 
+    private static boolean isImeVisible(View decor) {
+        if (decor == null || Build.VERSION.SDK_INT < 30) {
+            return false;
+        }
+        WindowInsets insets = decor.getRootWindowInsets();
+        return insets != null && (insets.isVisible(WindowInsets.Type.ime())
+            || insets.getInsets(WindowInsets.Type.ime()).bottom > 0);
+    }
+
     static int coverBottom(View view, View view2, View view3) {
         int[] iArr = new int[2];
         int iMax = 0;
@@ -117,12 +127,18 @@ final class ChatPanels {
             view.getLocationInWindow(iArr);
             iMax = Math.max(0, iArr[1] + view.getHeight());
         }
-        if (view2 != null && view2.isShown() && view2.getHeight() > 0) {
-            view2.getLocationInWindow(iArr);
-            iMax = Math.max(iMax, iArr[1] + view2.getHeight());
-        }
         View viewFind = view3 == null ? null : find(view3, CONTAINER);
-        if (viewFind == null || visiblePanel(viewFind) == null) {
+        View panel = viewFind == null ? null : visiblePanel(viewFind);
+        boolean imeVisible = panel == null && isImeVisible(view3);
+        if (view2 != null && view2.isShown() && view2.getHeight() > 0 && !imeVisible) {
+            view2.getLocationInWindow(iArr);
+            boolean separatedByKeyboard = panel == null && iMax > 0
+                && iArr[1] > iMax + BlurBars.dp(view2.getContext(), 8.0f);
+            if (!separatedByKeyboard) {
+                iMax = Math.max(iMax, iArr[1] + view2.getHeight());
+            }
+        }
+        if (panel == null) {
             return iMax;
         }
         viewFind.getLocationInWindow(iArr);
