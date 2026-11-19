@@ -1,3 +1,9 @@
+## [3.13.0-dev.17](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.16...v3.13.0-dev.17) (2026-11-19)
+
+### 🐛 Bug Fixes
+
+* **LINE:** fix default chat skin ForceDark dimming and header pill and unread badge contrast ([9e52d56](https://github.com/Zionlion113/morphe-patches/commit/9e52d56a87d82e6678bf324d7b12ddf7e8c9c7e3))
+
 ## [3.13.0-dev.16](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.15...v3.13.0-dev.16) (2026-11-19)
 
 ### 🐛 Bug Fixes
