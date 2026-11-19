@@ -197,18 +197,21 @@ public final class Haptics {
         if (!(root instanceof ViewGroup)) {
             return;
         }
-        ViewGroup group = (ViewGroup) root;
-        int count = group.getChildCount();
-        for (int i = 0; i < count; i++) {
-            View child = group.getChildAt(i);
-            if (child == null || child.getVisibility() != View.VISIBLE) {
-                continue;
+        try {
+            ViewGroup group = (ViewGroup) root;
+            int count = group.getChildCount();
+            for (int i = 0; i < count; i++) {
+                View child = group.getChildAt(i);
+                if (child == null || child.getVisibility() != View.VISIBLE) {
+                    continue;
+                }
+                if (child instanceof android.widget.Checkable && isSwitchWidget(child)) {
+                    attachToggleHaptic(child, (android.widget.Checkable) child);
+                } else if (child instanceof ViewGroup) {
+                    scanSwitches(child);
+                }
             }
-            if (child instanceof android.widget.Checkable && isSwitchWidget(child)) {
-                attachToggleHaptic(child, (android.widget.Checkable) child);
-            } else if (child instanceof ViewGroup) {
-                scanSwitches(child);
-            }
+        } catch (Throwable ignored) {
         }
     }
 
