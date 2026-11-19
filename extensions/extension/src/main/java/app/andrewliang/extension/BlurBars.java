@@ -1096,7 +1096,7 @@ public final class BlurBars {
 
     private static void fillPill(View view, int i) {
         try {
-            view.getClass().getMethod("setOverwrappingDrawable", Drawable.class).invoke(view, null);
+            view.getClass().getMethod("setOverwrappingDrawable", Drawable.class).invoke(view, new Object[]{null});
         } catch (Throwable unused) {
         }
         if (view instanceof ImageView) {

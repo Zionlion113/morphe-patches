@@ -359,19 +359,18 @@ final class ProgressiveBlurDrawable extends Drawable {
         }
 
         static RenderEffect effect(int i, int i2, float f, boolean z) {
-            return RenderEffect.createChainEffect(RenderEffect.createRuntimeShaderEffect(pass(i, i2, f, z, 0.0f, 1.0f), "content"), RenderEffect.createRuntimeShaderEffect(pass(i, i2, f, z, 1.0f, 0.0f), "content"));
-        }
-
-        private static RuntimeShader pass(int i, int i2, float f, boolean z, float f2, float f3) {
-            RuntimeShader runtimeShaderM23m = new RuntimeShader(ProgressiveBlurDrawable.SHADER);
+            float radius = f * 0.85f;
+            RenderEffect blur = RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.CLAMP);
+            RuntimeShader fade = new RuntimeShader(ProgressiveBlurDrawable.FADE_SHADER);
             float f4 = i2;
-            runtimeShaderM23m.setFloatUniform("size", i, f4);
-            runtimeShaderM23m.setFloatUniform("dir", f2, f3);
-            runtimeShaderM23m.setFloatUniform("fromBottom", z ? 1.0f : 0.0f);
-            runtimeShaderM23m.setFloatUniform("maxRadius", f);
-            runtimeShaderM23m.setFloatUniform("fullUntil", ProgressiveBlurDrawable.FULL_PART * f4);
-            runtimeShaderM23m.setFloatUniform("clearAt", f4);
-            return runtimeShaderM23m;
+            fade.setFloatUniform("size", i, f4);
+            fade.setFloatUniform("fromBottom", z ? 1.0f : 0.0f);
+            fade.setFloatUniform("fullUntil", ProgressiveBlurDrawable.FULL_PART * f4);
+            fade.setFloatUniform("clearAt", f4);
+            return RenderEffect.createChainEffect(
+                RenderEffect.createRuntimeShaderEffect(fade, "content"),
+                blur
+            );
         }
     }
 }
