@@ -122,7 +122,7 @@ final class ChatPanels {
             iMax = Math.max(iMax, iArr[1] + view2.getHeight());
         }
         View viewFind = view3 == null ? null : find(view3, CONTAINER);
-        if (viewFind == null || !viewFind.isShown() || viewFind.getHeight() <= 0) {
+        if (viewFind == null || visiblePanel(viewFind) == null) {
             return iMax;
         }
         viewFind.getLocationInWindow(iArr);
