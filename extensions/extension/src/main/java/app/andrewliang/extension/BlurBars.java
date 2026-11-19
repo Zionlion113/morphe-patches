@@ -1457,32 +1457,18 @@ public final class BlurBars {
 
     private static final class GlassRimDrawable extends Drawable {
         final View host;
-        private final float density;
         private boolean darkIcons;
-        private final Paint sheenPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint innerFacetPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint rimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint outerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final RectF sheenRect = new RectF();
-        private final RectF innerFacetRect = new RectF();
         private final RectF rimRect = new RectF();
-        private final RectF outerRect = new RectF();
         private int shaderWidth = -1;
         private int shaderHeight = -1;
         private boolean shaderDarkIcons;
 
         GlassRimDrawable(View host, float density, boolean darkIcons) {
             this.host = host;
-            this.density = density;
             this.darkIcons = darkIcons;
-            this.sheenPaint.setStyle(Paint.Style.STROKE);
-            this.sheenPaint.setStrokeWidth(Math.max(2.4f, density * 2.2f));
-            this.innerFacetPaint.setStyle(Paint.Style.STROKE);
-            this.innerFacetPaint.setStrokeWidth(Math.max(1.0f, density * 0.75f));
             this.rimPaint.setStyle(Paint.Style.STROKE);
-            this.rimPaint.setStrokeWidth(Math.max(1.8f, density * 1.45f));
-            this.outerPaint.setStyle(Paint.Style.STROKE);
-            this.outerPaint.setStrokeWidth(Math.max(1.0f, density * 0.85f));
+            this.rimPaint.setStrokeWidth(Math.max(1.2f, density * 1.0f));
         }
 
         void setDarkIcons(boolean darkIcons) {
@@ -1503,78 +1489,30 @@ public final class BlurBars {
             return this.host != null ? this.host.getHeight() : -1;
         }
 
-        private void ensureShaders(int w, int h) {
+        private void ensureShader(int w, int h) {
             if (w == this.shaderWidth && h == this.shaderHeight && this.darkIcons == this.shaderDarkIcons) {
                 return;
             }
             this.shaderWidth = w;
             this.shaderHeight = h;
             this.shaderDarkIcons = this.darkIcons;
-            float left = 0.0f;
-            float top = 0.0f;
-            float right = w;
-            float bottom = h;
-            float outerStroke = this.outerPaint.getStrokeWidth();
-            float outerInset = outerStroke * 0.5f;
-            this.outerRect.set(left + outerInset, top + outerInset, right - outerInset, bottom - outerInset);
-            float rimStroke = this.rimPaint.getStrokeWidth();
-            float rimInset = (this.darkIcons ? outerStroke * 0.85f : 0.5f) + rimStroke * 0.5f;
-            this.rimRect.set(left + rimInset, top + rimInset, right - rimInset, bottom - rimInset);
-            float sheenStroke = this.sheenPaint.getStrokeWidth();
-            float sheenInset = rimInset + rimStroke * 0.5f + sheenStroke * 0.45f;
-            this.sheenRect.set(left + sheenInset, top + sheenInset, right - sheenInset, bottom - sheenInset);
-            float facetInset = rimInset + rimStroke * 0.5f + Math.max(2.0f, this.density * 1.9f);
-            this.innerFacetRect.set(left + facetInset, top + facetInset, right - facetInset, bottom - facetInset);
+            float stroke = this.rimPaint.getStrokeWidth();
+            float inset = stroke * 0.5f + 0.5f;
+            this.rimRect.set(inset, inset, w - inset, h - inset);
             if (this.darkIcons) {
-                // Light/default chat: crisp dark outer edge + pure white top-lit rim + 2dp refractive glass wall thickness
-                this.outerPaint.setShader(new LinearGradient(
-                    left, top, left, bottom,
-                    new int[]{0x2A000000, 0x44000000},
-                    null,
-                    Shader.TileMode.CLAMP
-                ));
+                // Light/default chat: single slender rim, bright white on top tapering to subtle cool shadow on bottom
                 this.rimPaint.setShader(new LinearGradient(
-                    left, top, left, bottom,
-                    new int[]{0xFFFFFFFF, 0xCCFFFFFF, 0x58FFFFFF, 0x38FFFFFF},
-                    new float[]{0.0f, 0.26f, 0.65f, 1.0f},
-                    Shader.TileMode.CLAMP
-                ));
-                this.sheenPaint.setShader(new LinearGradient(
-                    left, top, left, bottom,
-                    new int[]{0x68FFFFFF, 0x00FFFFFF, 0x00FFFFFF, 0x36FFFFFF},
-                    new float[]{0.0f, 0.20f, 0.82f, 1.0f},
-                    Shader.TileMode.CLAMP
-                ));
-                this.innerFacetPaint.setShader(new LinearGradient(
-                    left, top, left, bottom,
-                    new int[]{0x1E000000, 0x08FFFFFF, 0x10FFFFFF, 0x4CFFFFFF},
-                    new float[]{0.0f, 0.30f, 0.72f, 1.0f},
+                    0.0f, 0.0f, 0.0f, h,
+                    new int[]{0xF2FFFFFF, 0x66FFFFFF, 0x22000000},
+                    new float[]{0.0f, 0.42f, 1.0f},
                     Shader.TileMode.CLAMP
                 ));
             } else {
-                // Dark/photo chat: Antigravity top-bright to bottom-dim white rim + glass wall internal light reflection
-                this.outerPaint.setShader(new LinearGradient(
-                    left, top, left, bottom,
-                    new int[]{0x18000000, 0x38000000},
-                    null,
-                    Shader.TileMode.CLAMP
-                ));
+                // Dark/photo chat: single slender Antigravity-style rim, bright white on top tapering to dim white on bottom
                 this.rimPaint.setShader(new LinearGradient(
-                    left, top, left, bottom,
-                    new int[]{0xFAFFFFFF, 0x9EFFFFFF, 0x3EFFFFFF, 0x24FFFFFF},
-                    new float[]{0.0f, 0.26f, 0.65f, 1.0f},
-                    Shader.TileMode.CLAMP
-                ));
-                this.sheenPaint.setShader(new LinearGradient(
-                    left, top, left, bottom,
-                    new int[]{0x4EFFFFFF, 0x00FFFFFF, 0x00FFFFFF, 0x2AFFFFFF},
-                    new float[]{0.0f, 0.20f, 0.82f, 1.0f},
-                    Shader.TileMode.CLAMP
-                ));
-                this.innerFacetPaint.setShader(new LinearGradient(
-                    left, top, left, bottom,
-                    new int[]{0x28FFFFFF, 0x08FFFFFF, 0x08FFFFFF, 0x3CFFFFFF},
-                    new float[]{0.0f, 0.28f, 0.72f, 1.0f},
+                    0.0f, 0.0f, 0.0f, h,
+                    new int[]{0xE6FFFFFF, 0x7AFFFFFF, 0x24FFFFFF},
+                    new float[]{0.0f, 0.35f, 1.0f},
                     Shader.TileMode.CLAMP
                 ));
             }
@@ -1587,31 +1525,19 @@ public final class BlurBars {
             if (w <= 0 || h <= 0) {
                 return;
             }
-            ensureShaders(w, h);
-            float sheenRadius = Math.max(0.0f, Math.min(this.sheenRect.width(), this.sheenRect.height()) * 0.5f);
-            canvas.drawRoundRect(this.sheenRect, sheenRadius, sheenRadius, this.sheenPaint);
-            float facetRadius = Math.max(0.0f, Math.min(this.innerFacetRect.width(), this.innerFacetRect.height()) * 0.5f);
-            canvas.drawRoundRect(this.innerFacetRect, facetRadius, facetRadius, this.innerFacetPaint);
-            float outerRadius = Math.max(0.0f, Math.min(this.outerRect.width(), this.outerRect.height()) * 0.5f);
-            canvas.drawRoundRect(this.outerRect, outerRadius, outerRadius, this.outerPaint);
+            ensureShader(w, h);
             float rimRadius = Math.max(0.0f, Math.min(this.rimRect.width(), this.rimRect.height()) * 0.5f);
             canvas.drawRoundRect(this.rimRect, rimRadius, rimRadius, this.rimPaint);
         }
 
         @Override // android.graphics.drawable.Drawable
         public void setAlpha(int alpha) {
-            this.sheenPaint.setAlpha(alpha);
-            this.innerFacetPaint.setAlpha(alpha);
             this.rimPaint.setAlpha(alpha);
-            this.outerPaint.setAlpha(alpha);
         }
 
         @Override // android.graphics.drawable.Drawable
         public void setColorFilter(ColorFilter colorFilter) {
-            this.sheenPaint.setColorFilter(colorFilter);
-            this.innerFacetPaint.setColorFilter(colorFilter);
             this.rimPaint.setColorFilter(colorFilter);
-            this.outerPaint.setColorFilter(colorFilter);
         }
 
         @Override // android.graphics.drawable.Drawable
