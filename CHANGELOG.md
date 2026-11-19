@@ -1,3 +1,10 @@
+## [3.13.0-dev.4](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.3...v3.13.0-dev.4) (2026-11-19)
+
+### 🐛 Bug Fixes
+
+* **LINE:** define FADE_SHADER constant for native blur fade ([d25f62b](https://github.com/Zionlion113/morphe-patches/commit/d25f62b0f0b7753682678d951063a291da595967))
+* **LINE:** remove input pill white outline and use native Skia blur with smooth fade ([49891ae](https://github.com/Zionlion113/morphe-patches/commit/49891ae6c924aa1b856a0cefb87fc57fada8f72d))
+
 ## [3.13.0-dev.3](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.2...v3.13.0-dev.3) (2026-11-17)
 
 ### 🐛 Bug Fixes

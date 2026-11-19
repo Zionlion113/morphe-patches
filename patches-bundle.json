@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-17T18:26:17",
-  "description": "## [3.13.0-dev.3](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.2...v3.13.0-dev.3) (2026-11-17)\n\n### 🐛 Bug Fixes\n\n* **LINE:** fix input pill border/fill and optimize blur scroll performance ([e001691](https://github.com/Zionlion113/morphe-patches/commit/e001691e9bd19ac74b6cf3d06067f90021d72829))",
-  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.3/patches-3.13.0-dev.3.mpp",
+  "created_at": "2026-11-19T03:44:08",
+  "description": "## [3.13.0-dev.4](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.3...v3.13.0-dev.4) (2026-11-19)\n\n### 🐛 Bug Fixes\n\n* **LINE:** define FADE_SHADER constant for native blur fade ([d25f62b](https://github.com/Zionlion113/morphe-patches/commit/d25f62b0f0b7753682678d951063a291da595967))\n* **LINE:** remove input pill white outline and use native Skia blur with smooth fade ([49891ae](https://github.com/Zionlion113/morphe-patches/commit/49891ae6c924aa1b856a0cefb87fc57fada8f72d))",
+  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.4/patches-3.13.0-dev.4.mpp",
   "signature_download_url": "",
-  "version": "3.13.0-dev.3"
+  "version": "3.13.0-dev.4"
 }
