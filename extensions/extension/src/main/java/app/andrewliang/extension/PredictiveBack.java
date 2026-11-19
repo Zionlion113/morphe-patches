@@ -12,12 +12,11 @@ import android.view.KeyEvent;
 import android.window.OnBackInvokedCallback;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import kotlin.uuid.Uuid;
 
 public final class PredictiveBack {
     static final String MARK = "app.andrewliang.predictive_back";
-    private static final Map<String, Boolean> MARKED = new ConcurrentHashMap();
-    private static final Map<Class<?>, Boolean> OLD_STYLE = new ConcurrentHashMap();
+    private static final Map<String, Boolean> MARKED = new ConcurrentHashMap<>();
+    private static final Map<Class<?>, Boolean> OLD_STYLE = new ConcurrentHashMap<>();
     private static boolean registered;
 
     private PredictiveBack() {
@@ -40,6 +39,9 @@ public final class PredictiveBack {
     }
 
     public static void setUp(final Activity activity) {
+        if (activity == null || Build.VERSION.SDK_INT < 33) {
+            return;
+        }
         if (isMarked(activity)) {
             if (Build.VERSION.SDK_INT < 34 || !LineSettings.predictiveBack() || handlesBackTheOldWay(activity.getClass())) {
                 activity.getOnBackInvokedDispatcher().registerOnBackInvokedCallback(0, new OnBackInvokedCallback() { // from class: app.andrewliang.extension.PredictiveBack$$ExternalSyntheticLambda2
@@ -60,7 +62,7 @@ public final class PredictiveBack {
         }
         boolean z = false;
         try {
-            ActivityInfo activityInfo = activity.getPackageManager().getActivityInfo(new ComponentName(activity, name), Uuid.SIZE_BITS);
+            ActivityInfo activityInfo = activity.getPackageManager().getActivityInfo(new ComponentName(activity, name), PackageManager.GET_META_DATA);
             if (activityInfo.metaData != null && activityInfo.metaData.getBoolean(MARK, false)) {
                 z = true;
             }

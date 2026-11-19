@@ -345,7 +345,17 @@ final class ProgressiveBlurDrawable extends Drawable {
         }
 
         private static RenderEffect effect(Region region, int i, int i2) {
-            float f = region.pieces[0].getResources().getDisplayMetrics().density * ProgressiveBlurDrawable.MAX_RADIUS_DP;
+            View host = null;
+            for (View piece : region.pieces) {
+                if (piece != null) {
+                    host = piece;
+                    break;
+                }
+            }
+            if (host == null) {
+                return null;
+            }
+            float f = host.getResources().getDisplayMetrics().density * ProgressiveBlurDrawable.MAX_RADIUS_DP;
             if (Build.VERSION.SDK_INT < 33) {
                 float f2 = f * 0.75f;
                 return RenderEffect.createBlurEffect(f2, f2, Shader.TileMode.CLAMP);

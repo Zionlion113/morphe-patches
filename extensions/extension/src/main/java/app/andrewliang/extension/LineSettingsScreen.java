@@ -11,6 +11,7 @@ import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
+import android.os.Build;
 import android.text.util.Linkify;
 import android.view.Gravity;
 import android.view.LayoutInflater;
@@ -102,11 +103,26 @@ final class LineSettingsScreen {
         // The dialog draws behind the system bars, so the screen keeps clear of them and cutouts,
         // while bounding content width on foldables, tablets, and desktop windows.
         root.setOnApplyWindowInsetsListener((view, insets) -> {
-            android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            int left;
+            int top;
+            int right;
+            int bottom;
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                left = bars.left;
+                top = bars.top;
+                right = bars.right;
+                bottom = bars.bottom;
+            } else {
+                left = insets.getSystemWindowInsetLeft();
+                top = insets.getSystemWindowInsetTop();
+                right = insets.getSystemWindowInsetRight();
+                bottom = insets.getSystemWindowInsetBottom();
+            }
+            view.setPadding(left, top, right, bottom);
             int side = PixelNativeEnhancements.computeAdaptiveSidePadding(
                     activity,
-                    view.getWidth() - bars.left - bars.right,
+                    view.getWidth() - left - right,
                     640.0f
             );
             content.setPadding(side, 0, side, 0);
@@ -126,16 +142,26 @@ final class LineSettingsScreen {
             window.setBackgroundDrawable(look.background(activity, fallback));
             window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
             // Dark system bar icons on a light background, as on LINE's own pages.
-            int light = look.isLight(fallback)
-                    ? WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                            | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
-                    : 0;
-            WindowInsetsController bars = window.getInsetsController();
-            if (bars != null) {
-                bars.setSystemBarsAppearance(light, WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                        | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
+            if (Build.VERSION.SDK_INT >= 30) {
+                int light = look.isLight(fallback)
+                        ? WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                                | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+                        : 0;
+                WindowInsetsController bars = window.getInsetsController();
+                if (bars != null) {
+                    bars.setSystemBarsAppearance(light, WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                            | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
+                }
+            } else if (look.isLight(fallback)) {
+                View decor = window.getDecorView();
+                int flags = decor.getSystemUiVisibility() | View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+                if (Build.VERSION.SDK_INT >= 26) {
+                    flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                }
+                decor.setSystemUiVisibility(flags);
             }
         }
+        dialog.setOnDismissListener(d -> look = new Look());
         dialog.show();
     }
 

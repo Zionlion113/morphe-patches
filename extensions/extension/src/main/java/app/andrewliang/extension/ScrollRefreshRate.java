@@ -64,10 +64,27 @@ public final class ScrollRefreshRate {
         @Override // app.andrewliang.extension.ViewFinder.Lifecycle, android.app.Application.ActivityLifecycleCallbacks
         public void onActivityPaused(Activity activity) {
             Booster booster;
-            if (activity.getWindow() == null || (booster = (Booster) ScrollRefreshRate.BOOSTERS.get(activity.getWindow().getDecorView())) == null) {
+            if (activity.getWindow() == null || (booster = ScrollRefreshRate.BOOSTERS.get(activity.getWindow().getDecorView())) == null) {
                 return;
             }
             booster.release();
+        }
+
+        @Override // app.andrewliang.extension.ViewFinder.Lifecycle, android.app.Application.ActivityLifecycleCallbacks
+        public void onActivityDestroyed(Activity activity) {
+            Window window = activity.getWindow();
+            if (window == null) {
+                return;
+            }
+            View decorView = window.getDecorView();
+            Booster booster = ScrollRefreshRate.BOOSTERS.remove(decorView);
+            if (booster != null) {
+                booster.release();
+                ViewTreeObserver vto = decorView.getViewTreeObserver();
+                if (vto.isAlive()) {
+                    vto.removeOnScrollChangedListener(booster);
+                }
+            }
         }
     }
 
@@ -89,17 +106,17 @@ public final class ScrollRefreshRate {
 
     static final class Booster implements ViewTreeObserver.OnScrollChangedListener {
         private boolean boosted;
-        private final View decor;
+        private final WeakReference<View> decor;
         private float oldFrameRate;
         private int oldModeId;
-        private View votedOn;
+        private WeakReference<View> votedOn = new WeakReference<>(null);
         private final WeakReference<Window> window;
         WeakReference<View> list = new WeakReference<>(null);
         private final Runnable idle = this::release;
 
         Booster(Window window, View view) {
             this.window = new WeakReference<>(window);
-            this.decor = view;
+            this.decor = new WeakReference<>(view);
         }
 
         @Override // android.view.ViewTreeObserver.OnScrollChangedListener
@@ -112,12 +129,13 @@ public final class ScrollRefreshRate {
                 return;
             }
             View view = this.list.get();
-            if (view != null && view.isAttachedToWindow() && view.isShown()) {
+            View decorView = this.decor.get();
+            if (view != null && decorView != null && view.isAttachedToWindow() && view.isShown()) {
                 if (!this.boosted) {
                     boost(view);
                 }
-                this.decor.removeCallbacks(this.idle);
-                this.decor.postDelayed(this.idle, ScrollRefreshRate.IDLE_MS);
+                decorView.removeCallbacks(this.idle);
+                decorView.postDelayed(this.idle, ScrollRefreshRate.IDLE_MS);
             }
         }
 
@@ -126,7 +144,7 @@ public final class ScrollRefreshRate {
             if (Build.VERSION.SDK_INT >= 36) {
                 this.oldFrameRate = view.getRequestedFrameRate();
                 view.setRequestedFrameRate(-4.0f);
-                this.votedOn = view;
+                this.votedOn = new WeakReference<>(view);
                 this.boosted = true;
                 return;
             }
@@ -144,15 +162,18 @@ public final class ScrollRefreshRate {
         }
 
         void release() {
-            this.decor.removeCallbacks(this.idle);
+            View decorView = this.decor.get();
+            if (decorView != null) {
+                decorView.removeCallbacks(this.idle);
+            }
             if (this.boosted) {
                 this.boosted = false;
                 if (Build.VERSION.SDK_INT >= 36) {
-                    View view = this.votedOn;
+                    View view = this.votedOn.get();
                     if (view != null) {
                         view.setRequestedFrameRate(this.oldFrameRate);
                     }
-                    this.votedOn = null;
+                    this.votedOn = new WeakReference<>(null);
                     return;
                 }
                 Window window = this.window.get();

@@ -37,15 +37,14 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.widget.ImageView;
 import android.widget.TextView;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
-import kotlin.io.ConstantsKt;
-import kotlin.jvm.internal.IntCompanionObject;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class BlurBars {
     private static final int BANNER_GAP_DP = 4;
@@ -85,15 +84,17 @@ public final class BlurBars {
     private static final String[] INPUT_EMOJI_ICONS = {"chat_ui_esk_button", "chat_ui_text_keyboard_button"};
     private static final String[] HEADER_TEXT = {"header_title", "header_title_count", "header_oa_chat_status_bar"};
     private static final String[] HEADER_ICONS = {"header_up_button"};
-    private static final Map<String, Integer> IDS = new HashMap();
-    private static final Map<View, Boolean> HIDDEN = Collections.synchronizedMap(new WeakHashMap());
-    private static final Map<View, MirroredArtworkDrawable> MIRRORED = new WeakHashMap();
-    private static final Map<View, Boolean> WATCHED = new WeakHashMap();
-    private static final Map<View, Boolean> PENDING = new WeakHashMap();
-    private static final Map<View, Boolean> SKIN_PREPARE = new WeakHashMap();
-    private static final Map<View, ChatScreen> CHATS = new WeakHashMap();
-    private static final Map<View, Boolean> STROKE_CLEARED = new WeakHashMap();
-    private static final Map<View, Integer> TINTED = new WeakHashMap();
+    private static final Map<String, Integer> IDS = new ConcurrentHashMap<>();
+    private static final Map<View, Boolean> HIDDEN = Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<View, MirroredArtworkDrawable> MIRRORED = new WeakHashMap<>();
+    private static final Map<View, Boolean> WATCHED = new WeakHashMap<>();
+    private static final Map<View, ViewTreeObserver.OnGlobalLayoutListener> LAYOUT_LISTENERS = new WeakHashMap<>();
+    private static final Map<View, ViewTreeObserver.OnPreDrawListener> PRE_DRAW_LISTENERS = new WeakHashMap<>();
+    private static final Map<View, Boolean> PENDING = new WeakHashMap<>();
+    private static final Map<View, Boolean> SKIN_PREPARE = new WeakHashMap<>();
+    private static final Map<View, ChatScreen> CHATS = new WeakHashMap<>();
+    private static final Map<View, Boolean> STROKE_CLEARED = new WeakHashMap<>();
+    private static final Map<View, Integer> TINTED = new WeakHashMap<>();
 
     private BlurBars() {
     }
@@ -109,6 +110,7 @@ public final class BlurBars {
         application.registerActivityLifecycleCallbacks(new Application.ActivityLifecycleCallbacks() { // from class: app.andrewliang.extension.BlurBars.1
             @Override // android.app.Application.ActivityLifecycleCallbacks
             public void onActivityDestroyed(Activity activity) {
+                BlurBars.unwatch(activity);
             }
 
             @Override // android.app.Application.ActivityLifecycleCallbacks
@@ -566,58 +568,107 @@ public final class BlurBars {
         }
     }
 
-    public static void watch(Activity activity) {
-        PixelNativeEnhancements.applyActivity(activity);
-        MaterialYou.attachChatSettingsRow(activity);
-        Window window;
-        if ((enabled() || MaterialYou.anyEnabled()) && (window = activity.getWindow()) != null) {
-            if (enabled() && Build.VERSION.SDK_INT >= 29) {
-                window.setStatusBarContrastEnforced(false);
-                window.setNavigationBarContrastEnforced(false);
+    static void unwatch(Activity activity) {
+        if (activity == null) {
+            return;
+        }
+        Window window = activity.getWindow();
+        if (window == null) {
+            return;
+        }
+        View decorView = window.getDecorView();
+        WATCHED.remove(decorView);
+        PENDING.remove(decorView);
+        CHATS.remove(decorView);
+        KeyboardMotion.clearOnStop(decorView);
+        ViewTreeObserver vto = decorView.getViewTreeObserver();
+        ViewTreeObserver.OnGlobalLayoutListener layoutListener = LAYOUT_LISTENERS.remove(decorView);
+        ViewTreeObserver.OnPreDrawListener preDrawListener = PRE_DRAW_LISTENERS.remove(decorView);
+        if (vto != null && vto.isAlive()) {
+            if (layoutListener != null) {
+                vto.removeOnGlobalLayoutListener(layoutListener);
             }
-            final View decorView = window.getDecorView();
-            Map<View, Boolean> map = WATCHED;
-            if (map.containsKey(decorView)) {
-                MaterialYou.onActivityResumed(decorView);
-                decorView.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        scan(decorView);
-                        ChatScreen chatScreen = CHATS.get(decorView);
-                        if (chatScreen != null) {
-                            chatScreen.redraw();
+            if (preDrawListener != null) {
+                vto.removeOnPreDrawListener(preDrawListener);
+            }
+        }
+    }
+
+    public static void watch(Activity activity) {
+        try {
+            PixelNativeEnhancements.applyActivity(activity);
+            MaterialYou.attachChatSettingsRow(activity);
+            Window window;
+            if ((enabled() || MaterialYou.anyEnabled()) && (window = activity.getWindow()) != null) {
+                if (enabled() && Build.VERSION.SDK_INT >= 29) {
+                    window.setStatusBarContrastEnforced(false);
+                    window.setNavigationBarContrastEnforced(false);
+                }
+                final View decorView = window.getDecorView();
+                Map<View, Boolean> map = WATCHED;
+                if (map.containsKey(decorView)) {
+                    MaterialYou.onActivityResumed(decorView);
+                    final WeakReference<View> decorRef = new WeakReference<>(decorView);
+                    decorView.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            View v = decorRef.get();
+                            if (v == null) {
+                                return;
+                            }
+                            scan(v);
+                            ChatScreen chatScreen = CHATS.get(v);
+                            if (chatScreen != null) {
+                                chatScreen.redraw();
+                            }
+                        }
+                    });
+                    return;
+                }
+                map.put(decorView, Boolean.TRUE);
+                final WeakReference<View> decorRef = new WeakReference<>(decorView);
+                final Runnable runnable = new Runnable() { // from class: app.andrewliang.extension.BlurBars$$ExternalSyntheticLambda10
+                    @Override // java.lang.Runnable
+                    public final void run() {
+                        View v = decorRef.get();
+                        if (v != null) {
+                            BlurBars.lambda$watch$2(v);
+                        }
+                    }
+                };
+                ViewTreeObserver viewTreeObserver = decorView.getViewTreeObserver();
+                ViewTreeObserver.OnGlobalLayoutListener layoutListener = new ViewTreeObserver.OnGlobalLayoutListener() { // from class: app.andrewliang.extension.BlurBars$$ExternalSyntheticLambda11
+                    @Override // android.view.ViewTreeObserver.OnGlobalLayoutListener
+                    public final void onGlobalLayout() {
+                        View v = decorRef.get();
+                        if (v != null) {
+                            BlurBars.lambda$watch$3(v, runnable);
+                        }
+                    }
+                };
+                LAYOUT_LISTENERS.put(decorView, layoutListener);
+                viewTreeObserver.addOnGlobalLayoutListener(layoutListener);
+                KeyboardMotion.onStop(decorView, new Runnable() { // from class: app.andrewliang.extension.BlurBars$$ExternalSyntheticLambda12
+                    @Override // java.lang.Runnable
+                    public final void run() {
+                        View v = decorRef.get();
+                        if (v != null) {
+                            BlurBars.lambda$watch$4(v, runnable);
                         }
                     }
                 });
-                return;
+                ViewTreeObserver.OnPreDrawListener preDrawListener = new ViewTreeObserver.OnPreDrawListener() { // from class: app.andrewliang.extension.BlurBars$$ExternalSyntheticLambda7
+                    @Override // android.view.ViewTreeObserver.OnPreDrawListener
+                    public final boolean onPreDraw() {
+                        View v = decorRef.get();
+                        return v == null || BlurBars.lambda$watch$5(v);
+                    }
+                };
+                PRE_DRAW_LISTENERS.put(decorView, preDrawListener);
+                viewTreeObserver.addOnPreDrawListener(preDrawListener);
+                decorView.post(runnable);
             }
-            map.put(decorView, Boolean.TRUE);
-            final Runnable runnable = new Runnable() { // from class: app.andrewliang.extension.BlurBars$$ExternalSyntheticLambda10
-                @Override // java.lang.Runnable
-                public final void run() {
-                    BlurBars.lambda$watch$2(decorView);
-                }
-            };
-            ViewTreeObserver viewTreeObserver = decorView.getViewTreeObserver();
-            viewTreeObserver.addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() { // from class: app.andrewliang.extension.BlurBars$$ExternalSyntheticLambda11
-                @Override // android.view.ViewTreeObserver.OnGlobalLayoutListener
-                public final void onGlobalLayout() {
-                    BlurBars.lambda$watch$3(decorView, runnable);
-                }
-            });
-            KeyboardMotion.onStop(decorView, new Runnable() { // from class: app.andrewliang.extension.BlurBars$$ExternalSyntheticLambda12
-                @Override // java.lang.Runnable
-                public final void run() {
-                    BlurBars.lambda$watch$4(decorView, runnable);
-                }
-            });
-            viewTreeObserver.addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() { // from class: app.andrewliang.extension.BlurBars$$ExternalSyntheticLambda7
-                @Override // android.view.ViewTreeObserver.OnPreDrawListener
-                public final boolean onPreDraw() {
-                    return BlurBars.lambda$watch$5(decorView);
-                }
-            });
-            decorView.post(runnable);
+        } catch (Throwable unused) {
         }
     }
 
@@ -639,31 +690,34 @@ public final class BlurBars {
     }
 
     static /* synthetic */ boolean lambda$watch$5(View view) {
-        boolean blurOn = enabled();
-        ChatScreen chatScreen = blurOn ? CHATS.get(view) : null;
-        if (blurOn) {
-            keepHidden();
-            keepMirrored();
-            if (chatScreen != null) {
-                chatScreen.onPreDraw();
+        try {
+            boolean blurOn = enabled();
+            ChatScreen chatScreen = blurOn ? CHATS.get(view) : null;
+            if (blurOn) {
+                keepHidden();
+                keepMirrored();
+                if (chatScreen != null) {
+                    chatScreen.onPreDraw();
+                }
             }
-        }
-        if (MaterialYou.anyEnabled()) {
-            if (chatScreen == null) {
-                MaterialYou.applyBottomNavBar(view);
-                MaterialYou.applyChatListBadges(view);
-            }
-            if (!blurOn) {
-                View header = find(view, CHAT_HEADER);
-                if (header != null && header.isAttachedToWindow()) {
-                    View list = find(view, CHAT_LIST);
-                    MaterialYou.applyChatRoom(view, header, list, find(view, CHAT_SKIN));
-                    PixelNativeEnhancements.applyFoldableChatLayout(view, list, find(view, CHAT_INPUT));
-                    if (LineSettings.chatHeaderWhite()) {
-                        tintHeader(header, null);
+            if (MaterialYou.anyEnabled()) {
+                if (chatScreen == null) {
+                    MaterialYou.applyBottomNavBar(view);
+                    MaterialYou.applyChatListBadges(view);
+                }
+                if (!blurOn) {
+                    View header = find(view, CHAT_HEADER);
+                    if (header != null && header.isAttachedToWindow()) {
+                        View list = find(view, CHAT_LIST);
+                        MaterialYou.applyChatRoom(view, header, list, find(view, CHAT_SKIN));
+                        PixelNativeEnhancements.applyFoldableChatLayout(view, list, find(view, CHAT_INPUT));
+                        if (LineSettings.chatHeaderWhite()) {
+                            tintHeader(header, null);
+                        }
                     }
                 }
             }
+        } catch (Throwable unused) {
         }
         return true;
     }
@@ -922,8 +976,8 @@ public final class BlurBars {
             this.palette = new SkinPalette();
             this.setPaddingTop = -1;
             this.setPaddingBottom = -1;
-            this.setMarginTop = IntCompanionObject.MIN_VALUE;
-            this.setMarginBottom = IntCompanionObject.MIN_VALUE;
+            this.setMarginTop = Integer.MIN_VALUE;
+            this.setMarginBottom = Integer.MIN_VALUE;
             this.decor = view;
             this.header = view2;
             this.content = view3;
@@ -1152,7 +1206,7 @@ public final class BlurBars {
                 return;
             }
             int systemUiVisibility = view.getSystemUiVisibility();
-            int i3 = z ? systemUiVisibility | ConstantsKt.DEFAULT_BUFFER_SIZE : systemUiVisibility & (-8193);
+            int i3 = z ? systemUiVisibility | View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR : systemUiVisibility & (~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
             int i4 = z2 ? i3 | 16 : i3 & (-17);
             if (i4 != systemUiVisibility) {
                 this.decor.setSystemUiVisibility(i4);
@@ -1228,21 +1282,17 @@ public final class BlurBars {
                     ((ViewGroup) view3).setClipToPadding(false);
                 }
                 View view4 = this.spacer;
-                View view5 = (View) ((view4 == null || !(view4.getParent() instanceof View)) ? this.header : this.spacer).getParent();
-                Object parent = this.refresh.getParent();
-                while (true) {
-                    View view6 = (View) parent;
-                    if (!(view6 instanceof ViewGroup)) {
-                        break;
-                    }
-                    ViewGroup viewGroup = (ViewGroup) view6;
+                ViewParent stopParent = ((view4 == null || !(view4.getParent() instanceof View)) ? this.header : this.spacer).getParent();
+                View view5 = stopParent instanceof View ? (View) stopParent : null;
+                ViewParent parent = this.refresh.getParent();
+                while (parent instanceof ViewGroup) {
+                    ViewGroup viewGroup = (ViewGroup) parent;
                     viewGroup.setClipChildren(false);
                     viewGroup.setClipToPadding(false);
-                    if (view6 == view5 || !(view6.getParent() instanceof View)) {
+                    if (viewGroup == view5) {
                         break;
-                    } else {
-                        parent = view6.getParent();
                     }
+                    parent = viewGroup.getParent();
                 }
             }
             if (z2) {
@@ -1299,9 +1349,24 @@ public final class BlurBars {
         view.setClipToOutline(true);
     }
 
+    private static final Object NO_OVERWRAPPING_METHOD = new Object();
+    private static final Map<Class<?>, Object> OVERWRAPPING_METHODS = new ConcurrentHashMap<>();
+
     private static void clearPillBg(View view) {
         try {
-            view.getClass().getMethod("setOverwrappingDrawable", Drawable.class).invoke(view, new Object[]{null});
+            Class<?> cls = view.getClass();
+            Object cached = OVERWRAPPING_METHODS.get(cls);
+            if (cached == null) {
+                try {
+                    cached = cls.getMethod("setOverwrappingDrawable", Drawable.class);
+                } catch (Throwable unused) {
+                    cached = NO_OVERWRAPPING_METHOD;
+                }
+                OVERWRAPPING_METHODS.put(cls, cached);
+            }
+            if (cached instanceof java.lang.reflect.Method) {
+                ((java.lang.reflect.Method) cached).invoke(view, new Object[]{null});
+            }
         } catch (Throwable unused) {
         }
         if (view instanceof ImageView) {
