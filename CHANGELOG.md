@@ -1,3 +1,9 @@
+## [3.13.0-dev.19](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.18...v3.13.0-dev.19) (2026-11-19)
+
+### ✨ New Features
+
+* **LINE:** extend Material You tinting to special chat bubbles, send button, and voice icons ([360a29c](https://github.com/Zionlion113/morphe-patches/commit/360a29c6af121e8879500f63372af437086a9817))
+
 ## [3.13.0-dev.18](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.17...v3.13.0-dev.18) (2026-11-19)
 
 ### 🐛 Bug Fixes
