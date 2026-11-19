@@ -343,8 +343,8 @@ final class LineSettingsScreen {
                         t("Unlocks large-screen rotation, centers chats & dialogs across 1:1, 4:3, and 16:9 windows, respects hinge & cutout insets, and supports mouse/stylus hover.", "依循 Google Play 自適應品質標準：大螢幕自動解鎖旋轉限制，針對 1:1、4:3 與 16:9 視窗置中最佳閱讀寬度、避開摺疊轉軸與挖孔，並支援滑鼠與觸控筆懸停回饋。"),
                         true, null));
                 content.addView(toggle(activity, LineSettings.PIXEL_WINDOW_BLUR,
-                        t("Hardware dialog blur", "系統硬體加速毛玻璃視窗（Android 12+）"),
-                        t("Uses Android 12+ GPU cross-window blur behind settings and color picker dialogs.", "在設定與氣泡調色視窗後方啟用 Android 12+ 原生 GPU 視窗模糊。"),
+                        t("Hardware dialog blur", "全彈窗原生毛玻璃背景模糊（Android 12+）"),
+                        t("Uses Android 12+ GPU cross-window blur behind LINE dialogs, menus, and popups. Disabled in Battery Saver.", "在 LINE 所有對話框、選單與彈窗後方啟用 Android 12+ 原生 GPU 毛玻璃模糊。省電模式下自動停用。"),
                         true, null));
                 content.addView(restart);
             }
@@ -513,8 +513,8 @@ final class LineSettingsScreen {
         CheckedTextView toggle = row.findViewById(id(activity, "setting_switch", "id"));
         toggle.setChecked(LineSettings.isOn(key, defaultOn));
         container.setOnClickListener(v -> {
-            PixelNativeEnhancements.tick(v);
             boolean on = !toggle.isChecked();
+            Haptics.performToggleHaptic(v, on);
             toggle.setChecked(on);
             LineSettings.set(key, on);
             if (onChange != null) onChange.run();

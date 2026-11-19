@@ -22,8 +22,8 @@ private const val UNSEND_ARGUMENTS = "Lcom/linecorp/line/chat/ui/impl/message/co
 @Suppress("unused")
 val chatHapticsPatch = bytecodePatch(
     name = "[Chat] Haptic feedback",
-    description = "Adds a short vibration when you long-press a message, send a message, or unsend one. " +
-        "It follows the system touch feedback setting.",
+    description = "Adds tactile feedback when you long-press a message, swipe to reply, send, unsend, " +
+        "flip a switch, or switch bottom tabs. It follows the system touch feedback setting.",
     default = true,
 ) {
     compatibleWith(COMPATIBILITY_LINE)
