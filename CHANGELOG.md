@@ -1,3 +1,9 @@
+## [3.13.0-dev.8](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.7...v3.13.0-dev.8) (2026-11-19)
+
+### 🐛 Bug Fixes
+
+* **LINE:** stop extending chat list behind system keyboard and add glass bevel thickness ([5b35a8b](https://github.com/Zionlion113/morphe-patches/commit/5b35a8bca93b5c783ee0cc20100b858c85b82d70))
+
 ## [3.13.0-dev.7](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.6...v3.13.0-dev.7) (2026-11-19)
 
 ### 🐛 Bug Fixes
