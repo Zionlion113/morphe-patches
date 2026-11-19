@@ -429,6 +429,12 @@ private fun Method.callsModalShow(): Boolean =
     implementation?.instructions?.any { it.modalShowTarget() != null } == true
 
 private fun MutableMethod.rerouteModalShow(isDialogType: (String) -> Boolean) {
+    if ((name == "show" && parameterTypes.isEmpty()) ||
+        name == "showAtLocation" ||
+        name == "showAsDropDown"
+    ) {
+        return
+    }
     val sites = (implementation ?: return).instructions.withIndex()
         .mapNotNull { (index, instruction) ->
             val target = instruction.modalShowTarget() ?: return@mapNotNull null
