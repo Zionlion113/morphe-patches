@@ -269,22 +269,64 @@ final class MaterialYou {
     }
 
     /**
-     * Tints the green unread-count pills (e.g. "29", "5", "99+", "N") on the main chat list
-     * and search results with the Material You accent palette.
+     * Tints all chat list unread-count pills (e.g. "55", "37", "5", "185", "999+", "N") across
+     * every ViewPager2 folder page, AND tints the Compose header pill ("聊天") and folder filter
+     * pills ("全部 / 好友 / 群組 / 官方帳號 / 社群") with the Material You accent palette.
      */
     static void applyChatListBadges(View decorView) {
         if (decorView == null || !LineSettings.materialYouTheme()) {
             return;
         }
-        View list = BlurBars.find(decorView, "chat_list_recycler_view");
-        if (!(list instanceof ViewGroup) || !list.isAttachedToWindow()) {
+        Context ctx = decorView.getContext();
+        Palette palette = Palette.of(ctx);
+
+        // 1. Tint Compose folder filter pills ("全部 / 好友 / 群組 / 官方帳號 / 社群")
+        View tabLayout = BlurBars.find(decorView, "tab_layout_view");
+        if (tabLayout != null && tabLayout.isAttachedToWindow()) {
+            tintComposeSurface(tabLayout, palette);
+        }
+
+        // 2. Locate ChatListComposeHeader ("聊天 ▾ / 好友") via chat_list_view_pager's root, and
+        //    walk ALL chat_list_recycler_view instances inside chat_list_view_pager (all folder tabs).
+        int rvId = BlurBars.id(ctx, "chat_list_recycler_view");
+        View pager = BlurBars.find(decorView, "chat_list_view_pager");
+        if (pager instanceof ViewGroup && pager.isAttachedToWindow()) {
+            View chatRoot = (pager.getParent() instanceof View && ((View) pager.getParent()).getParent() instanceof View)
+                    ? (View) ((View) pager.getParent()).getParent()
+                    : null;
+            if (chatRoot != null) {
+                View chatHeader = BlurBars.find(chatRoot, "header");
+                if (chatHeader != null && chatHeader.getClass().getName().endsWith("ChatListComposeHeader")) {
+                    tintComposeSurface(chatHeader, palette);
+                }
+            }
+            tintAllChatListsInTree((ViewGroup) pager, rvId, palette);
+        } else {
+            View singleList = rvId != 0 ? decorView.findViewById(rvId) : null;
+            if (singleList instanceof ViewGroup && singleList.isAttachedToWindow()) {
+                tintChatListRows((ViewGroup) singleList, palette);
+            }
+        }
+    }
+
+    private static void tintAllChatListsInTree(ViewGroup group, int recyclerId, Palette palette) {
+        if (recyclerId != 0 && group.getId() == recyclerId) {
+            tintChatListRows(group, palette);
             return;
         }
-        Palette palette = Palette.of(decorView.getContext());
-        ViewGroup vg = (ViewGroup) list;
-        int count = vg.getChildCount();
+        int count = group.getChildCount();
         for (int i = 0; i < count; i++) {
-            View row = vg.getChildAt(i);
+            View child = group.getChildAt(i);
+            if (child instanceof ViewGroup && child.getVisibility() == View.VISIBLE) {
+                tintAllChatListsInTree((ViewGroup) child, recyclerId, palette);
+            }
+        }
+    }
+
+    private static void tintChatListRows(ViewGroup list, Palette palette) {
+        int count = list.getChildCount();
+        for (int i = 0; i < count; i++) {
+            View row = list.getChildAt(i);
             if (row == null || row.getVisibility() != View.VISIBLE) {
                 continue;
             }
@@ -299,6 +341,53 @@ final class MaterialYou {
                 }
             }
         }
+    }
+
+    /**
+     * Maps black selected pills ("聊天 ▾", "全部") and green unread dots in LINE's Compose header
+     * and folder tabs to the Material You accent color while preserving pure white backgrounds.
+     */
+    private static void tintComposeSurface(View view, Palette palette) {
+        int accent = palette.accent;
+        Integer applied = BADGE_APPLIED.get(view);
+        if (applied != null && applied == accent && view.getLayerType() == View.LAYER_TYPE_HARDWARE) {
+            return;
+        }
+        float r = Color.red(accent) / 255.0f;
+        float g = Color.green(accent) / 255.0f;
+        float b = Color.blue(accent) / 255.0f;
+        float[] m;
+        if (!palette.dark) {
+            // Light mode: White (255) stays pure White; Black (0) becomes exact Material You accent;
+            // Green dots desaturate into a soft Material You tint.
+            float lr = 0.299f;
+            float lg = 0.587f;
+            float lb = 0.114f;
+            float kr = 1.0f - r;
+            float kg = 1.0f - g;
+            float kb = 1.0f - b;
+            m = new float[]{
+                    kr * lr, kr * lg, kr * lb, 0f, r * 255.0f,
+                    kg * lr, kg * lg, kg * lb, 0f, g * 255.0f,
+                    kb * lr, kb * lg, kb * lb, 0f, b * 255.0f,
+                    0f,      0f,      0f,      1f, 0f
+            };
+        } else {
+            // Dark mode: Black (0) stays Black; White selected pills become Material You light accent.
+            float lr = 0.299f;
+            float lg = 0.587f;
+            float lb = 0.114f;
+            m = new float[]{
+                    r * lr, r * lg, r * lb, 0f, 0f,
+                    g * lr, g * lg, g * lb, 0f, 0f,
+                    b * lr, b * lg, b * lb, 0f, 0f,
+                    0f,     0f,     0f,     1f, 0f
+            };
+        }
+        Paint layerPaint = new Paint();
+        layerPaint.setColorFilter(new android.graphics.ColorMatrixColorFilter(m));
+        view.setLayerType(View.LAYER_TYPE_HARDWARE, layerPaint);
+        BADGE_APPLIED.put(view, accent);
     }
 
     private static void tintBadge(View view, Palette palette) {
@@ -317,12 +406,24 @@ final class MaterialYou {
             return;
         }
         Drawable bg = view.getBackground();
-        if (bg != null) {
-            Integer applied = BADGE_APPLIED.get(view);
-            if (applied == null || applied != palette.badgeBg || bg.getColorFilter() == null) {
-                bg.mutate().setColorFilter(palette.badgeBg, PorterDuff.Mode.SRC_IN);
-                BADGE_APPLIED.put(view, palette.badgeBg);
+        if (bg == null) {
+            return;
+        }
+        ColorStateList currentTint = view.getBackgroundTintList();
+        Integer applied = BADGE_APPLIED.get(view);
+        if (applied == null
+                || applied != palette.badgeBg
+                || currentTint == null
+                || currentTint.getDefaultColor() != palette.badgeBg
+                || bg.getColorFilter() == null) {
+            Drawable mutated = bg.mutate();
+            if (mutated instanceof GradientDrawable) {
+                ((GradientDrawable) mutated).setColor(palette.badgeBg);
             }
+            mutated.setColorFilter(palette.badgeBg, PorterDuff.Mode.SRC_IN);
+            view.setBackgroundTintMode(PorterDuff.Mode.SRC_IN);
+            view.setBackgroundTintList(ColorStateList.valueOf(palette.badgeBg));
+            BADGE_APPLIED.put(view, palette.badgeBg);
         }
     }
 

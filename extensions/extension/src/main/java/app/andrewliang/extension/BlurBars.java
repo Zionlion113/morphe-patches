@@ -1463,14 +1463,14 @@ public final class BlurBars {
             if (this.darkIcons) {
                 this.fillPaint.setShader(new LinearGradient(
                     left, top, left, bottom,
-                    new int[]{0x4EFFFFFF, 0x2AFFFFFF},
+                    new int[]{0xD8FFFFFF, 0xBCFFFFFF},
                     null,
                     Shader.TileMode.CLAMP
                 ));
             } else {
                 this.fillPaint.setShader(new LinearGradient(
                     left, top, left, bottom,
-                    new int[]{0x28FFFFFF, 0x12FFFFFF},
+                    new int[]{0x5CFFFFFF, 0x42FFFFFF},
                     null,
                     Shader.TileMode.CLAMP
                 ));
@@ -1549,10 +1549,10 @@ public final class BlurBars {
             float inset = stroke * 0.5f + 0.5f;
             this.rimRect.set(inset, inset, w - inset, h - inset);
             if (this.darkIcons) {
-                // Light/default chat: very subtle, delicate glass highlight
+                // Light/default chat: soft subtle highlight with gentle bottom definition
                 this.rimPaint.setShader(new LinearGradient(
                     0.0f, 0.0f, 0.0f, h,
-                    new int[]{0x4EFFFFFF, 0x18FFFFFF, 0x0A000000},
+                    new int[]{0x70FFFFFF, 0x26FFFFFF, 0x1A000000},
                     new float[]{0.0f, 0.38f, 1.0f},
                     Shader.TileMode.CLAMP
                 ));
@@ -1560,7 +1560,7 @@ public final class BlurBars {
                 // Dark/photo chat: soft translucent top glint tapering gently to bottom
                 this.rimPaint.setShader(new LinearGradient(
                     0.0f, 0.0f, 0.0f, h,
-                    new int[]{0x46FFFFFF, 0x16FFFFFF, 0x08FFFFFF},
+                    new int[]{0x60FFFFFF, 0x22FFFFFF, 0x12FFFFFF},
                     new float[]{0.0f, 0.36f, 1.0f},
                     Shader.TileMode.CLAMP
                 ));
