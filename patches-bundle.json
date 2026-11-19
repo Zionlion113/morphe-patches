@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-19T06:16:28",
-  "description": "## [3.13.0-dev.11](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.10...v3.13.0-dev.11) (2026-11-19)\n\n### 🐛 Bug Fixes\n\n* **LINE:** simplify glass input rim to a single slender highlight layer ([390c173](https://github.com/Zionlion113/morphe-patches/commit/390c173788cd1d5c3009ea03c62d67bea9bfde2f))",
-  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.11/patches-3.13.0-dev.11.mpp",
+  "created_at": "2026-11-19T06:38:16",
+  "description": "## [3.13.0-dev.12](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.11...v3.13.0-dev.12) (2026-11-19)\n\n### ✨ New Features\n\n* **LINE:** add Material You dynamic theming, white chat header, and per-chat bubble colors ([b49b4e5](https://github.com/Zionlion113/morphe-patches/commit/b49b4e520eb9ca01b1efee9b67934e434a206811))",
+  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.12/patches-3.13.0-dev.12.mpp",
   "signature_download_url": "",
-  "version": "3.13.0-dev.11"
+  "version": "3.13.0-dev.12"
 }

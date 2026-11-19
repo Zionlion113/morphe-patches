@@ -1,3 +1,9 @@
+## [3.13.0-dev.12](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.11...v3.13.0-dev.12) (2026-11-19)
+
+### ✨ New Features
+
+* **LINE:** add Material You dynamic theming, white chat header, and per-chat bubble colors ([b49b4e5](https://github.com/Zionlion113/morphe-patches/commit/b49b4e520eb9ca01b1efee9b67934e434a206811))
+
 ## [3.13.0-dev.11](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.10...v3.13.0-dev.11) (2026-11-19)
 
 ### 🐛 Bug Fixes
