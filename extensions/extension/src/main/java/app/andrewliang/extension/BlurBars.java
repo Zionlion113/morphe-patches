@@ -938,6 +938,7 @@ public final class BlurBars {
             View view;
             updateStyle();
             ensureBackgrounds();
+            extendList();
             if (!BlurBars.powerSave()) {
                 View view6 = this.skin;
                 boolean z = view6 != null && view6.isDirty();
@@ -982,7 +983,7 @@ public final class BlurBars {
             if (view == null || this.list == null || !view.isAttachedToWindow() || !(this.refresh.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) || this.header.getHeight() == 0 || this.refresh.getHeight() == 0 || this.header.isLayoutRequested() || this.refresh.isLayoutRequested()) {
                 return;
             }
-            int[] iArr = new int[2];
+            int[] iArr = this.tmpLoc;
             this.header.getLocationInWindow(iArr);
             boolean z2 = true;
             int i = iArr[1];
@@ -1032,7 +1033,7 @@ public final class BlurBars {
             this.extendedBottom = i5;
             this.paddedTop = i4;
             this.paddedBottom = i14;
-            if (i4 > 0 || i5 > 0 || i14 > 0) {
+            if (z2 && (i4 > 0 || i5 > 0 || i14 > 0)) {
                 View view3 = this.list;
                 if (view3 instanceof ViewGroup) {
                     ((ViewGroup) view3).setClipToPadding(false);
