@@ -85,3 +85,21 @@ internal object ChatHistoryRecyclerScrollOffsetFingerprint : Fingerprint(
     },
 )
 
+internal object ComposeColorResolverFingerprint : Fingerprint(
+    returnType = "J",
+    parameters = listOf("I"),
+    filters = listOf(
+        methodCall(
+            definingClass = "Landroid/content/res/Resources;",
+            name = "getColor",
+            parameters = listOf("I", "Landroid/content/res/Resources\$Theme;"),
+            returnType = "I",
+        ),
+    ),
+    custom = { _, classDef ->
+        val fieldTypes = classDef.instanceFields.map { it.type }.toSet()
+        classDef.instanceFields.size == 2 &&
+            "Landroid/content/res/Resources;" in fieldTypes &&
+            "Landroid/content/res/Resources\$Theme;" in fieldTypes
+    },
+)

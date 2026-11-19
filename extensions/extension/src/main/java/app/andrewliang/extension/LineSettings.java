@@ -61,6 +61,7 @@ public final class LineSettings {
     static final String CHAT_HEADER_WHITE = "chat_header_white";
     static final String MATERIAL_YOU_THEME = "material_you_theme";
     static final String MATERIAL_YOU_NAV_BAR = "material_you_nav_bar";
+    static final String CHAT_BUBBLE_WALLPAPER = "chat_bubble_wallpaper";
     static final String CHAT_BUBBLE_SEND_PREFIX = "chat_bubble_send_";
     static final String CHAT_BUBBLE_RECV_PREFIX = "chat_bubble_recv_";
     static final String PIXEL_ULTRA_HDR = "pixel_ultra_hdr";
@@ -207,6 +208,10 @@ public final class LineSettings {
 
     public static boolean materialYouNavBar() {
         return isOn(MATERIAL_YOU_NAV_BAR, true);
+    }
+
+    public static boolean chatBubbleWallpaper() {
+        return isOn(CHAT_BUBBLE_WALLPAPER, true);
     }
 
     public static int chatBubbleSendColor(String chatId) {

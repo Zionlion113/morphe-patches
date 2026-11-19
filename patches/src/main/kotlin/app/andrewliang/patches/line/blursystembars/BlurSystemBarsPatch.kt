@@ -12,6 +12,7 @@ import app.morphe.patcher.extensions.InstructionExtensions.replaceInstruction
 import app.morphe.patcher.patch.PatchException
 import app.morphe.patcher.patch.bytecodePatch
 import app.morphe.patcher.util.smali.ExternalLabel
+import com.android.tools.smali.dexlib2.AccessFlags
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.Instruction
@@ -219,6 +220,73 @@ val blurSystemBarsPatch = bytecodePatch(
                 move-result p2
             """,
         )
+
+        ComposeColorResolverFingerprint.methodOrNull?.let { colorResolver ->
+            val colorInsts = colorResolver.implementation?.instructions?.toList().orEmpty()
+            val getColorIdx = colorInsts.indexOfFirst { inst ->
+                inst.opcode == Opcode.INVOKE_VIRTUAL &&
+                    inst.methodRef()?.let { ref ->
+                        ref.definingClass == "Landroid/content/res/Resources;" &&
+                            ref.name == "getColor" &&
+                            ref.parameterTypes.size == 2 &&
+                            ref.returnType == "I"
+                    } == true
+            }
+            if (getColorIdx >= 0) {
+                val call = colorInsts[getColorIdx] as FiveRegisterInstruction
+                if (call.registerCount == 3 &&
+                    call.registerC <= 15 &&
+                    call.registerD <= 15 &&
+                    call.registerE <= 15
+                ) {
+                    colorResolver.replaceInstruction(
+                        getColorIdx,
+                        "invoke-static { v${call.registerC}, v${call.registerD}, v${call.registerE} }, " +
+                            "$EXTENSION->getComposeColor(Landroid/content/res/Resources;ILandroid/content/res/Resources\$Theme;)I",
+                    )
+                }
+            }
+        }
+
+        mutableClassDefByOrNull("Lcom/linecorp/line/compose/theme/i;")?.let { composeThemeClass ->
+            for (method in composeThemeClass.methods) {
+                val slot = when (method.name) {
+                    "c" -> 1
+                    "h" -> 2
+                    "j" -> 3
+                    else -> 0
+                }
+                if (slot != 0 &&
+                    AccessFlags.STATIC.isSet(method.accessFlags) &&
+                    method.returnType == "J" &&
+                    method.parameterTypes.size == 4 &&
+                    method.parameterTypes[0] == "Ljava/util/Set;" &&
+                    method.parameterTypes[1] == "J" &&
+                    method.parameterTypes[3] == "I"
+                ) {
+                    val impl = method.implementation
+                    if (impl != null && impl.registerCount >= 7) {
+                        val p0Reg = impl.registerCount - 5
+                        if (p0Reg <= 15) {
+                            val labelName = "morphe_compose_theme_${method.name}"
+                            method.addInstructionsWithLabels(
+                                0,
+                                """
+                                    const/4 v0, $slot
+                                    invoke-static { p0, v0 }, $EXTENSION->overrideComposeThemeColor(Ljava/util/Set;I)I
+                                    move-result v0
+                                    if-eqz v0, :$labelName
+                                    invoke-static { v0 }, $EXTENSION->argbToComposeColor(I)J
+                                    move-result-wide v0
+                                    return-wide v0
+                                """,
+                                ExternalLabel(labelName, method.getInstruction(0)),
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
         markLineSettingIncluded("blurSystemBars")
     }

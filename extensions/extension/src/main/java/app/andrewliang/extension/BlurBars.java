@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
+import android.content.res.Resources;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
@@ -41,6 +42,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.WeakHashMap;
 import kotlin.io.ConstantsKt;
 import kotlin.jvm.internal.IntCompanionObject;
@@ -101,6 +103,7 @@ public final class BlurBars {
             return;
         }
         registered = true;
+        MaterialYou.init(application);
         watchPowerSave(application);
         watchConfiguration(application);
         application.registerActivityLifecycleCallbacks(new Application.ActivityLifecycleCallbacks() { // from class: app.andrewliang.extension.BlurBars.1
@@ -167,6 +170,18 @@ public final class BlurBars {
 
     public static Object composeArtworkScale(Object obj, Object obj2) {
         return enabled() ? obj2 : obj;
+    }
+
+    public static int getComposeColor(Resources resources, int resId, Resources.Theme theme) {
+        return MaterialYou.resolveComposeColor(resources, resId, theme);
+    }
+
+    public static int overrideComposeThemeColor(Set<?> keys, int slot) {
+        return MaterialYou.overrideComposeThemeColor(keys, slot);
+    }
+
+    public static long argbToComposeColor(int argb) {
+        return MaterialYou.argbToComposeColor(argb);
     }
 
     public static void layoutChatSkin(final ImageView imageView) {
@@ -485,6 +500,7 @@ public final class BlurBars {
 
             @Override // android.content.ComponentCallbacks
             public void onConfigurationChanged(Configuration configuration) {
+                MaterialYou.onConfigurationChanged();
                 for (ChatScreen chatScreen : new ArrayList<>(BlurBars.CHATS.values())) {
                     if (chatScreen != null) {
                         chatScreen.redraw();
@@ -524,6 +540,17 @@ public final class BlurBars {
             final View decorView = window.getDecorView();
             Map<View, Boolean> map = WATCHED;
             if (map.containsKey(decorView)) {
+                MaterialYou.onActivityResumed(decorView);
+                decorView.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        scan(decorView);
+                        ChatScreen chatScreen = CHATS.get(decorView);
+                        if (chatScreen != null) {
+                            chatScreen.redraw();
+                        }
+                    }
+                });
                 return;
             }
             map.put(decorView, Boolean.TRUE);
@@ -592,15 +619,13 @@ public final class BlurBars {
                 View header = find(view, CHAT_HEADER);
                 if (header != null && header.isAttachedToWindow()) {
                     View list = find(view, CHAT_LIST);
-                    MaterialYou.applyChatRoom(view, header, list);
+                    MaterialYou.applyChatRoom(view, header, list, find(view, CHAT_SKIN));
                     PixelNativeEnhancements.applyFoldableChatLayout(view, list, find(view, CHAT_INPUT));
                     if (LineSettings.chatHeaderWhite()) {
                         tintHeader(header, null);
                     }
                 }
             }
-        } else {
-            MaterialYou.clearComposeTintIfNeeded();
         }
         return true;
     }
@@ -616,7 +641,7 @@ public final class BlurBars {
                 View header = find(view, CHAT_HEADER);
                 if (header != null && header.isAttachedToWindow()) {
                     View list = find(view, CHAT_LIST);
-                    MaterialYou.applyChatRoom(view, header, list);
+                    MaterialYou.applyChatRoom(view, header, list, find(view, CHAT_SKIN));
                     PixelNativeEnhancements.applyFoldableChatLayout(view, list, find(view, CHAT_INPUT));
                     if (LineSettings.chatHeaderWhite()) {
                         tintHeader(header, null);
@@ -1000,7 +1025,7 @@ public final class BlurBars {
                 BlurBars.smoothInputPill(this.input, this.style);
                 BlurBars.tintInputIcons(this.input, this.style);
             }
-            MaterialYou.applyChatRoom(this.decor, this.header, this.list);
+            MaterialYou.applyChatRoom(this.decor, this.header, this.list, this.skin);
             BlurBars.tintHeader(this.header, this.style);
             ChatPanels.apply(this.decor, this.skin, this.refresh);
         }
@@ -1050,7 +1075,7 @@ public final class BlurBars {
             updateStyle();
             ensureBackgrounds();
             extendList();
-            MaterialYou.applyChatRoom(this.decor, this.header, this.list);
+            MaterialYou.applyChatRoom(this.decor, this.header, this.list, this.skin);
             PixelNativeEnhancements.applyFoldableChatLayout(this.decor, this.list, this.input);
             if (LineSettings.chatHeaderWhite()) {
                 BlurBars.tintHeader(this.header, this.style);

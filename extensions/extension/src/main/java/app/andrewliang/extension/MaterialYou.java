@@ -2,22 +2,24 @@ package app.andrewliang.extension;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Application;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
+import android.content.res.Resources;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.ColorFilter;
 import android.graphics.Paint;
-import android.graphics.PixelFormat;
 import android.graphics.PorterDuff;
 import android.graphics.Rect;
-import android.graphics.RectF;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
@@ -25,17 +27,29 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.WeakHashMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 final class MaterialYou {
+
+    // Per-chat bubble mode values stored in LineSettings (custom ARGB colors always have alpha 0xFF, i.e. < 0)
+    static final int MODE_AUTO = 0;
+    static final int MODE_WALLPAPER = 1;
+    static final int MODE_MATERIAL_YOU = 2;
+    static final int MODE_LINE_DEFAULT = 3;
 
     private static final String[] BNB_TABS = {
             "bnb_home_v2",
@@ -60,19 +74,24 @@ final class MaterialYou {
             "chat_ui_row_gift_message_bubble",
     };
 
+    private static final String[] BUBBLE_QUOTE_CONTAINER_IDS = {
+            "chat_ui_message_source_balloon",
+    };
+
     private static final String[] BUBBLE_TEXT_IDS = {
             "chat_ui_message_text",
             "chat_ui_row_file_title",
             "chat_ui_unavailable_message",
+            "chat_ui_content_text",
     };
 
     private static final String[] BUBBLE_SUBTEXT_IDS = {
             "chat_ui_row_file_duration",
             "chat_ui_row_file_size",
+            "chat_ui_sender_name",
     };
 
     private static final int[] PRESET_COLORS = {
-            0,          // Follow Material You / default
             0xFFD3E3FD, // Sky Mist
             0xFFC4EED0, // Mint Leaf
             0xFFEADDFF, // Lavender
@@ -89,20 +108,51 @@ final class MaterialYou {
     private static final String CHAT_SETTINGS_ROW_TAG = "andrew_chat_setting_bubble_row";
 
     private static final Map<View, Integer> BUBBLE_APPLIED = new WeakHashMap<>();
+    private static final Map<View, Drawable> BUBBLE_BG_REF = new WeakHashMap<>();
+    private static final Map<View, int[]> ORIG_BUBBLE_PADDING = new WeakHashMap<>();
+    private static final Map<View, int[]> ORIG_BADGE_PADDING = new WeakHashMap<>();
     private static final Map<View, Integer> NAV_APPLIED = new WeakHashMap<>();
     private static final Map<View, Integer> BADGE_APPLIED = new WeakHashMap<>();
-    private static final Map<View, Boolean> COMPOSE_TINTED = new WeakHashMap<>();
     private static final Map<View, String> CHAT_IDS = new WeakHashMap<>();
+    private static final Map<View, WallpaperPalette> SKIN_WALLPAPER_CACHE = new WeakHashMap<>();
 
+    // Fast O(1) caches for Jetpack Compose color & theme-element hooks
+    private static final Map<Integer, Integer> COMPOSE_RES_KIND = new ConcurrentHashMap<>();
+    private static final Map<Set<?>, Integer> COMPOSE_SET_KIND = new ConcurrentHashMap<>();
+
+    private static volatile Context appContext;
     private static volatile String lastActiveChatId = "";
     private static volatile String lastActiveChatTitle = "";
+    private static volatile WallpaperPalette lastActiveWallpaperPalette;
 
     private MaterialYou() {}
 
+    static void init(Application application) {
+        if (application != null) {
+            appContext = application.getApplicationContext();
+        }
+    }
+
     static boolean anyEnabled() {
-        return LineSettings.materialYouTheme()
-                || LineSettings.materialYouNavBar()
-                || LineSettings.chatHeaderWhite();
+        return true;
+    }
+
+    static void onConfigurationChanged() {
+        Palette.cached = null;
+        BUBBLE_APPLIED.clear();
+        NAV_APPLIED.clear();
+        BADGE_APPLIED.clear();
+        SKIN_WALLPAPER_CACHE.clear();
+    }
+
+    static void onActivityResumed(View decorView) {
+        BUBBLE_APPLIED.clear();
+        BUBBLE_BG_REF.clear();
+        NAV_APPLIED.clear();
+        BADGE_APPLIED.clear();
+        if (decorView != null) {
+            CHAT_IDS.remove(decorView);
+        }
     }
 
     static final class Palette {
@@ -141,14 +191,17 @@ final class MaterialYou {
             this.blurSurface = blurSurface;
         }
 
-        private static volatile Palette cached;
+        static volatile Palette cached;
         private static volatile boolean cachedDark;
         private static volatile int cachedKeyColor;
 
         static Palette of(Context context) {
-            boolean dark = (context.getResources().getConfiguration().uiMode
+            if (context == null) {
+                context = appContext;
+            }
+            boolean dark = context != null && (context.getResources().getConfiguration().uiMode
                     & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
-            if (Build.VERSION.SDK_INT >= 31) {
+            if (context != null && Build.VERSION.SDK_INT >= 31) {
                 try {
                     int a1_500 = context.getColor(android.R.color.system_accent1_500);
                     Palette hit = cached;
@@ -200,6 +253,249 @@ final class MaterialYou {
         }
     }
 
+    /**
+     * Synthesizes Material-3-harmonized sent &amp; received bubble colors from the chat room's
+     * background wallpaper ({@code ChatHistorySkinImageView}), cached per drawable &amp; bitmap generation.
+     */
+    static final class WallpaperPalette {
+        final Drawable drawableRef;
+        final int bitmapGenId;
+        final int viewWidth;
+        final int viewHeight;
+        final boolean dark;
+        final boolean valid;
+        final int seedAccent;
+        final int sendBubble;
+        final int receiveBubble;
+
+        private WallpaperPalette(
+                Drawable drawableRef,
+                int bitmapGenId,
+                int viewWidth,
+                int viewHeight,
+                boolean dark,
+                boolean valid,
+                int seedAccent,
+                int sendBubble,
+                int receiveBubble
+        ) {
+            this.drawableRef = drawableRef;
+            this.bitmapGenId = bitmapGenId;
+            this.viewWidth = viewWidth;
+            this.viewHeight = viewHeight;
+            this.dark = dark;
+            this.valid = valid;
+            this.seedAccent = seedAccent;
+            this.sendBubble = sendBubble;
+            this.receiveBubble = receiveBubble;
+        }
+
+        static WallpaperPalette fromSkin(View skinView, boolean dark) {
+            if (skinView == null || skinView.getVisibility() != View.VISIBLE) {
+                return null;
+            }
+            Drawable d = skinView instanceof ImageView ? ((ImageView) skinView).getDrawable() : null;
+            if (d == null) {
+                d = skinView.getBackground();
+            }
+            if (d == null) {
+                SKIN_WALLPAPER_CACHE.remove(skinView);
+                return null;
+            }
+            if (d instanceof ColorDrawable && Color.alpha(((ColorDrawable) d).getColor()) < 32) {
+                SKIN_WALLPAPER_CACHE.remove(skinView);
+                return null;
+            }
+            int w = skinView.getWidth();
+            int h = skinView.getHeight();
+            if (w <= 0 || h <= 0) {
+                return null;
+            }
+            Bitmap rawBmp = d instanceof BitmapDrawable ? ((BitmapDrawable) d).getBitmap() : null;
+            int genId = (rawBmp != null && !rawBmp.isRecycled()) ? rawBmp.getGenerationId() : 0;
+
+            WallpaperPalette cached = SKIN_WALLPAPER_CACHE.get(skinView);
+            if (cached != null
+                    && cached.drawableRef == d
+                    && cached.bitmapGenId == genId
+                    && cached.viewWidth == w
+                    && cached.viewHeight == h
+                    && cached.dark == dark) {
+                return cached.valid ? cached : null;
+            }
+
+            int[] colors = extractHarmonizedColors(d, w, h, dark);
+            WallpaperPalette result;
+            if (colors != null) {
+                result = new WallpaperPalette(d, genId, w, h, dark, true, colors[0], colors[1], colors[2]);
+            } else {
+                result = new WallpaperPalette(d, genId, w, h, dark, false, 0, 0, 0);
+            }
+            SKIN_WALLPAPER_CACHE.put(skinView, result);
+            return result.valid ? result : null;
+        }
+
+        private static int[] extractHarmonizedColors(Drawable drawable, int width, int height, boolean dark) {
+            final int grid = 28;
+            Bitmap bmp = Bitmap.createBitmap(grid, grid, Bitmap.Config.ARGB_8888);
+            try {
+                Canvas canvas = new Canvas(bmp);
+                if (!drawDrawableSafe(canvas, drawable, width, height, grid)) {
+                    return null;
+                }
+                int[] pixels = new int[grid * grid];
+                bmp.getPixels(pixels, 0, grid, 0, 0, grid, grid);
+
+                float[] histWeight = new float[36];
+                float[] histSat = new float[36];
+                float[] hsv = new float[3];
+                long rSum = 0;
+                long gSum = 0;
+                long bSum = 0;
+                int opaqueCount = 0;
+                float totalChromaWeight = 0f;
+
+                for (int px : pixels) {
+                    int a = (px >>> 24) & 0xFF;
+                    if (a < 96) {
+                        continue;
+                    }
+                    opaqueCount++;
+                    int r = (px >> 16) & 0xFF;
+                    int g = (px >> 8) & 0xFF;
+                    int b = px & 0xFF;
+                    rSum += r;
+                    gSum += g;
+                    bSum += b;
+
+                    Color.RGBToHSV(r, g, b, hsv);
+                    float s = hsv[1];
+                    float v = hsv[2];
+                    if (s >= 0.07f && v >= 0.08f) {
+                        int bin = ((int) (hsv[0] / 10.0f)) % 36;
+                        if (bin < 0) bin = 0;
+                        float weight = s * (0.35f + 0.65f * v);
+                        histWeight[bin] += weight;
+                        histSat[bin] += s * weight;
+                        totalChromaWeight += weight;
+                    }
+                }
+
+                if (opaqueCount < (grid * grid) / 6) {
+                    return null;
+                }
+
+                float peakHue;
+                float repSat;
+                if (totalChromaWeight >= 0.8f) {
+                    int bestBin = 0;
+                    float bestScore = -1f;
+                    for (int i = 0; i < 36; i++) {
+                        int prev = (i + 35) % 36;
+                        int next = (i + 1) % 36;
+                        float smooth = histWeight[prev] * 0.5f + histWeight[i] + histWeight[next] * 0.5f;
+                        if (smooth > bestScore) {
+                            bestScore = smooth;
+                            bestBin = i;
+                        }
+                    }
+                    int prev = (bestBin + 35) % 36;
+                    int next = (bestBin + 1) % 36;
+                    float wSum = histWeight[prev] + histWeight[bestBin] + histWeight[next];
+                    float sSum = histSat[prev] + histSat[bestBin] + histSat[next];
+                    peakHue = (bestBin * 10.0f + 5.0f) % 360.0f;
+                    repSat = wSum > 0f ? (sSum / wSum) : 0.35f;
+                } else {
+                    int avgR = (int) (rSum / opaqueCount);
+                    int avgG = (int) (gSum / opaqueCount);
+                    int avgB = (int) (bSum / opaqueCount);
+                    Color.RGBToHSV(avgR, avgG, avgB, hsv);
+                    peakHue = hsv[0];
+                    repSat = hsv[1];
+                }
+
+                int seedAccent;
+                int sendBubble;
+                int recvBubble;
+                if (dark) {
+                    float sendSat = totalChromaWeight >= 0.8f ? clamp(repSat * 0.65f, 0.28f, 0.56f) : clamp(repSat * 0.4f, 0.04f, 0.14f);
+                    float recvSat = totalChromaWeight >= 0.8f ? clamp(repSat * 0.22f, 0.06f, 0.18f) : 0.04f;
+                    seedAccent = Color.HSVToColor(new float[]{peakHue, clamp(repSat * 0.55f, 0.25f, 0.65f), 0.88f});
+                    sendBubble = Color.HSVToColor(new float[]{peakHue, sendSat, 0.46f});
+                    recvBubble = Color.HSVToColor(new float[]{peakHue, recvSat, 0.21f});
+                } else {
+                    float sendSat = totalChromaWeight >= 0.8f ? clamp(repSat * 0.46f, 0.18f, 0.36f) : clamp(repSat * 0.3f, 0.04f, 0.12f);
+                    float recvSat = totalChromaWeight >= 0.8f ? clamp(repSat * 0.14f, 0.04f, 0.12f) : 0.02f;
+                    seedAccent = Color.HSVToColor(new float[]{peakHue, clamp(repSat * 0.78f, 0.35f, 0.82f), 0.54f});
+                    sendBubble = Color.HSVToColor(new float[]{peakHue, sendSat, 0.95f});
+                    int tintedWhite = Color.HSVToColor(new float[]{peakHue, recvSat, 0.99f});
+                    recvBubble = blend(0xFFFFFFFF, tintedWhite, 0.65f);
+                }
+                return new int[]{seedAccent | 0xFF000000, sendBubble | 0xFF000000, recvBubble | 0xFF000000};
+            } catch (Throwable ignored) {
+                return null;
+            } finally {
+                bmp.recycle();
+            }
+        }
+
+        private static boolean drawDrawableSafe(Canvas canvas, Drawable drawable, int viewW, int viewH, int grid) {
+            if (drawable instanceof ColorDrawable) {
+                canvas.drawColor(((ColorDrawable) drawable).getColor());
+                return true;
+            }
+            if (drawable instanceof BitmapDrawable) {
+                Bitmap src = ((BitmapDrawable) drawable).getBitmap();
+                if (src == null || src.isRecycled()) {
+                    return false;
+                }
+                Bitmap sw = (Build.VERSION.SDK_INT >= 26 && src.getConfig() == Bitmap.Config.HARDWARE)
+                        ? src.copy(Bitmap.Config.ARGB_8888, false)
+                        : src;
+                if (sw == null) {
+                    return false;
+                }
+                try {
+                    canvas.drawBitmap(sw, null, new Rect(0, 0, grid, grid), new Paint(Paint.FILTER_BITMAP_FLAG));
+                    return true;
+                } finally {
+                    if (sw != src) {
+                        sw.recycle();
+                    }
+                }
+            }
+            if (drawable instanceof LayerDrawable) {
+                LayerDrawable ld = (LayerDrawable) drawable;
+                boolean drew = false;
+                for (int i = 0; i < ld.getNumberOfLayers(); i++) {
+                    Drawable child = ld.getDrawable(i);
+                    if (child != null && drawDrawableSafe(canvas, child, viewW, viewH, grid)) {
+                        drew = true;
+                    }
+                }
+                return drew;
+            }
+            int save = canvas.save();
+            try {
+                Rect b = drawable.getBounds();
+                int bw = b.width() > 0 ? b.width() : viewW;
+                int bh = b.height() > 0 ? b.height() : viewH;
+                canvas.scale((float) grid / Math.max(1, bw), (float) grid / Math.max(1, bh));
+                canvas.translate(-b.left, -b.top);
+                drawable.draw(canvas);
+                return true;
+            } catch (Throwable ignored) {
+                return false;
+            } finally {
+                canvas.restoreToCount(save);
+            }
+        }
+
+        private static float clamp(float v, float min, float max) {
+            return Math.max(min, Math.min(max, v));
+        }
+    }
+
     static int accentColor(Context context) {
         return Palette.of(context).accent;
     }
@@ -208,8 +504,129 @@ final class MaterialYou {
         return Palette.of(context).blurSurface;
     }
 
+    // =========================================================================
+    // Jetpack Compose Unread Badge & Header / SubTab Pill Color Hooks
+    // =========================================================================
+
+    static int resolveComposeColor(Resources res, int resId, Resources.Theme theme) {
+        int original = res.getColor(resId, theme);
+        if (!LineSettings.materialYouTheme()) {
+            return original;
+        }
+        Integer kind = COMPOSE_RES_KIND.get(resId);
+        if (kind == null) {
+            int classified = 0;
+            try {
+                String name = res.getResourceEntryName(resId);
+                if ("primaryFill".equals(name)) {
+                    classified = 1;
+                } else if ("primaryFill_pressed".equals(name) || "linegreen_pressed".equals(name)) {
+                    classified = 2;
+                } else if ("onPrimaryAccentFill".equals(name)) {
+                    classified = 3;
+                } else if ("primaryInverseFill".equals(name)) {
+                    classified = 4;
+                } else if ("primaryInverseFill_pressed".equals(name)) {
+                    classified = 5;
+                } else if ("onPrimaryInverseFill".equals(name)) {
+                    classified = 6;
+                }
+            } catch (Throwable ignored) {
+            }
+            kind = classified;
+            COMPOSE_RES_KIND.put(resId, kind);
+        }
+        if (kind == 0) {
+            return original;
+        }
+        Palette palette = Palette.of(appContext);
+        switch (kind) {
+            case 1:
+                return palette.badgeBg | 0xFF000000;
+            case 2:
+                return blend(palette.badgeBg, 0xFF000000, 0.14f) | 0xFF000000;
+            case 3:
+                return palette.onBadge | 0xFF000000;
+            case 4:
+                return palette.accent | 0xFF000000;
+            case 5:
+                return blend(palette.accent, 0xFF000000, 0.14f) | 0xFF000000;
+            case 6:
+                return isLightColor(palette.accent) ? 0xFF1A1C1E : 0xFFFFFFFF;
+            default:
+                return original;
+        }
+    }
+
+    static int overrideComposeThemeColor(Set<?> keys, int slot) {
+        if (keys == null || !LineSettings.materialYouTheme()) {
+            return 0;
+        }
+        Integer kind = COMPOSE_SET_KIND.get(keys);
+        if (kind == null) {
+            if (COMPOSE_SET_KIND.size() > 512) {
+                COMPOSE_SET_KIND.clear();
+            }
+            int classified = 0;
+            try {
+                String desc = keys.toString();
+                if (desc.contains("messageCountText.background")
+                        || desc.contains("newbadge.background")
+                        || desc.contains("noti.background")
+                        || desc.contains("newDotIcon")) {
+                    classified = 1;
+                } else if (desc.contains("messageCountText")
+                        || desc.contains("newbadge.icon")
+                        || desc.contains("noti.text")) {
+                    classified = 2;
+                } else if (desc.contains("navigationBar.subTab") && desc.contains("selected.background")) {
+                    classified = 3;
+                } else if (desc.contains("navigationBar.subTab")
+                        && (desc.contains("selected.text") || desc.contains("selected.icon"))) {
+                    classified = 4;
+                }
+            } catch (Throwable ignored) {
+            }
+            kind = classified;
+            COMPOSE_SET_KIND.put(keys, kind);
+        }
+        if (kind == 0) {
+            return 0;
+        }
+        Palette palette = Palette.of(appContext);
+        switch (kind) {
+            case 1:
+                return (slot == 1 || slot == 2) ? (palette.badgeBg | 0xFF000000) : 0;
+            case 2:
+                return (slot == 3 || slot == 1) ? (palette.onBadge | 0xFF000000) : 0;
+            case 3:
+                return (slot == 2 || slot == 1) ? (palette.accent | 0xFF000000) : 0;
+            case 4:
+                return slot == 3 ? (isLightColor(palette.accent) ? 0xFF1A1C1E : 0xFFFFFFFF) : 0;
+            default:
+                return 0;
+        }
+    }
+
+    static long argbToComposeColor(int argb) {
+        return ((long) argb) << 32;
+    }
+
+    // =========================================================================
+    // Bottom Navigation Bar & Unread Badges ("999+")
+    // =========================================================================
+
+    private static final class BadgePillDrawable extends GradientDrawable {
+        int appliedColor;
+    }
+
     static void applyBottomNavBar(View decorView) {
-        if (decorView == null || !LineSettings.materialYouNavBar()) {
+        if (decorView == null) {
+            return;
+        }
+        boolean styleNavBar = LineSettings.materialYouNavBar();
+        boolean styleBadges = styleNavBar || LineSettings.materialYouTheme();
+        if (!styleBadges) {
             return;
         }
         View bnbBg = BlurBars.find(decorView, "bnb_background_image");
@@ -219,41 +636,41 @@ final class MaterialYou {
         Context ctx = decorView.getContext();
         Palette palette = Palette.of(ctx);
 
-        // Keep bnb_background_image at its native 49dp bar height (do NOT fill the 85dp parent
-        // main_tab_container, whose upper 36dp is transparent overhang for themed tab artwork).
-        Drawable bg = bnbBg.getBackground();
-        if (bg != null && !(bg instanceof ColorDrawable)) {
-            Integer prev = NAV_APPLIED.get(bnbBg);
-            if (prev == null || prev != palette.navBarBg || bg.getColorFilter() == null) {
-                bg.mutate().setColorFilter(palette.navBarBg, PorterDuff.Mode.SRC_IN);
-                NAV_APPLIED.put(bnbBg, palette.navBarBg);
+        if (styleNavBar) {
+            Drawable bg = bnbBg.getBackground();
+            if (bg != null && !(bg instanceof ColorDrawable)) {
+                Integer prev = NAV_APPLIED.get(bnbBg);
+                if (prev == null || prev != palette.navBarBg || bg.getColorFilter() == null) {
+                    bg.mutate().setColorFilter(palette.navBarBg, PorterDuff.Mode.SRC_IN);
+                    NAV_APPLIED.put(bnbBg, palette.navBarBg);
+                }
+            } else {
+                int barHeight = BlurBars.dp(ctx, 49.0f);
+                ViewGroup.LayoutParams lp = bnbBg.getLayoutParams();
+                if (lp != null && lp.height != barHeight) {
+                    lp.height = barHeight;
+                    bnbBg.setLayoutParams(lp);
+                }
+                if (!(bg instanceof ColorDrawable) || ((ColorDrawable) bg).getColor() != palette.navBarBg) {
+                    bnbBg.setBackground(new ColorDrawable(palette.navBarBg));
+                }
             }
-        } else {
-            int barHeight = BlurBars.dp(ctx, 49.0f);
-            ViewGroup.LayoutParams lp = bnbBg.getLayoutParams();
-            if (lp != null && lp.height != barHeight) {
-                lp.height = barHeight;
-                bnbBg.setLayoutParams(lp);
+            if (bnbBg instanceof ImageView) {
+                ImageView img = (ImageView) bnbBg;
+                if (img.getDrawable() != null) {
+                    img.setColorFilter(palette.navBarBg, PorterDuff.Mode.SRC_IN);
+                }
             }
-            if (!(bg instanceof ColorDrawable) || ((ColorDrawable) bg).getColor() != palette.navBarBg) {
-                bnbBg.setBackground(new ColorDrawable(palette.navBarBg));
-            }
-        }
-        if (bnbBg instanceof ImageView) {
-            ImageView img = (ImageView) bnbBg;
-            if (img.getDrawable() != null) {
-                img.setColorFilter(palette.navBarBg, PorterDuff.Mode.SRC_IN);
-            }
-        }
 
-        View sysNavBg = BlurBars.find(decorView, "main_navigation_bar_background");
-        if (sysNavBg != null) {
-            if (sysNavBg.getVisibility() != View.VISIBLE) {
-                sysNavBg.setVisibility(View.VISIBLE);
-            }
-            if (!(sysNavBg.getBackground() instanceof ColorDrawable)
-                    || ((ColorDrawable) sysNavBg.getBackground()).getColor() != palette.navBarBg) {
-                sysNavBg.setBackground(new ColorDrawable(palette.navBarBg));
+            View sysNavBg = BlurBars.find(decorView, "main_navigation_bar_background");
+            if (sysNavBg != null) {
+                if (sysNavBg.getVisibility() != View.VISIBLE) {
+                    sysNavBg.setVisibility(View.VISIBLE);
+                }
+                if (!(sysNavBg.getBackground() instanceof ColorDrawable)
+                        || ((ColorDrawable) sysNavBg.getBackground()).getColor() != palette.navBarBg) {
+                    sysNavBg.setBackground(new ColorDrawable(palette.navBarBg));
+                }
             }
         }
 
@@ -262,26 +679,33 @@ final class MaterialYou {
             if (tab == null || tab.getVisibility() != View.VISIBLE) {
                 continue;
             }
-            View iconView = BlurBars.find(tab, "bnb_button_image");
-            View textView = BlurBars.find(tab, "bnb_button_text");
-            boolean selected = tab.isSelected()
-                    || (iconView != null && iconView.isSelected())
-                    || (textView != null && textView.isSelected());
-            int tint = selected ? palette.navSelected : palette.navUnselected;
+            if (styleNavBar) {
+                View clickArea = BlurBars.find(tab, "bnb_button_clickable_area");
+                View iconView = BlurBars.find(tab, "bnb_button_image");
+                View textView = BlurBars.find(tab, "bnb_button_text");
+                boolean selected = tab.isSelected()
+                        || (clickArea != null && clickArea.isSelected())
+                        || (iconView != null && iconView.isSelected())
+                        || (textView != null && textView.isSelected());
+                int tint = selected ? palette.navSelected : palette.navUnselected;
 
-            if (iconView instanceof ImageView) {
-                ImageView iv = (ImageView) iconView;
-                Integer applied = NAV_APPLIED.get(iv);
-                if (applied == null || applied != tint || iv.getColorFilter() == null) {
-                    iv.setImageTintList(ColorStateList.valueOf(tint));
-                    iv.setColorFilter(tint, PorterDuff.Mode.SRC_IN);
-                    NAV_APPLIED.put(iv, tint);
+                if (iconView instanceof ImageView) {
+                    ImageView iv = (ImageView) iconView;
+                    Integer applied = NAV_APPLIED.get(iv);
+                    if (applied == null || applied != tint || iv.getColorFilter() == null) {
+                        iv.setImageTintList(ColorStateList.valueOf(tint));
+                        iv.setColorFilter(tint, PorterDuff.Mode.SRC_IN);
+                        NAV_APPLIED.put(iv, tint);
+                    }
                 }
-            }
-            if (textView instanceof TextView) {
-                TextView tv = (TextView) textView;
-                if (tv.getCurrentTextColor() != tint) {
-                    tv.setTextColor(tint);
+                if (textView instanceof TextView) {
+                    TextView tv = (TextView) textView;
+                    if (tv.getCurrentTextColor() != tint) {
+                        tv.setTextColor(tint);
+                    }
+                    if (tv.getShadowRadius() > 0f) {
+                        tv.setShadowLayer(0f, 0f, 0f, 0);
+                    }
                 }
             }
             tintBadge(BlurBars.find(tab, "bnb_button_badge_num"), palette);
@@ -289,75 +713,18 @@ final class MaterialYou {
         }
     }
 
-    /**
-     * Tints all chat list unread-count pills (e.g. "55", "37", "5", "185", "999+", "N") across
-     * every ViewPager2 folder page, AND tints the Compose header pill ("聊天") and folder filter
-     * pills ("全部 / 好友 / 群組 / 官方帳號 / 社群") with the Material You accent palette.
-     */
-    static void clearComposeTintIfNeeded() {
-        if (COMPOSE_TINTED.isEmpty()) {
-            return;
-        }
-        for (View v : new java.util.ArrayList<>(COMPOSE_TINTED.keySet())) {
-            if (v != null) {
-                v.setLayerType(View.LAYER_TYPE_NONE, null);
-                BADGE_APPLIED.remove(v);
-            }
-        }
-        COMPOSE_TINTED.clear();
-    }
-
     static void applyChatListBadges(View decorView) {
-        if (decorView == null) {
-            return;
-        }
-        if (!LineSettings.materialYouTheme()) {
-            clearComposeTintIfNeeded();
+        if (decorView == null || !LineSettings.materialYouTheme()) {
             return;
         }
         Context ctx = decorView.getContext();
-        Palette palette = Palette.of(ctx);
-
-        // 1. Tint Compose folder filter pills ("全部 / 好友 / 群組 / 官方帳號 / 社群")
-        View tabLayout = BlurBars.find(decorView, "tab_layout_view");
-        if (tabLayout != null && tabLayout.isAttachedToWindow()) {
-            tintComposeSurface(tabLayout, palette);
-        }
-
-        // 2. Locate ChatListComposeHeader ("聊天 ▾ / 好友") via chat_list_view_pager's root, and
-        //    walk ALL chat_list_recycler_view instances inside chat_list_view_pager (all folder tabs).
         int rvId = BlurBars.id(ctx, "chat_list_recycler_view");
-        View pager = BlurBars.find(decorView, "chat_list_view_pager");
-        if (pager instanceof ViewGroup && pager.isAttachedToWindow()) {
-            View chatRoot = (pager.getParent() instanceof View && ((View) pager.getParent()).getParent() instanceof View)
-                    ? (View) ((View) pager.getParent()).getParent()
-                    : null;
-            if (chatRoot != null) {
-                View chatHeader = BlurBars.find(chatRoot, "header");
-                if (chatHeader != null && chatHeader.getClass().getName().endsWith("ChatListComposeHeader")) {
-                    tintComposeSurface(chatHeader, palette);
-                }
-            }
-            tintAllChatListsInTree((ViewGroup) pager, rvId, palette);
-        } else {
-            View singleList = rvId != 0 ? decorView.findViewById(rvId) : null;
-            if (singleList instanceof ViewGroup && singleList.isAttachedToWindow()) {
-                tintChatListRows((ViewGroup) singleList, palette);
-            }
-        }
-    }
-
-    private static void tintAllChatListsInTree(ViewGroup group, int recyclerId, Palette palette) {
-        if (recyclerId != 0 && group.getId() == recyclerId) {
-            tintChatListRows(group, palette);
+        if (rvId == 0) {
             return;
         }
-        int count = group.getChildCount();
-        for (int i = 0; i < count; i++) {
-            View child = group.getChildAt(i);
-            if (child instanceof ViewGroup && child.getVisibility() == View.VISIBLE) {
-                tintAllChatListsInTree((ViewGroup) child, recyclerId, palette);
-            }
+        View singleList = decorView.findViewById(rvId);
+        if (singleList instanceof ViewGroup && singleList.isAttachedToWindow()) {
+            tintChatListRows((ViewGroup) singleList, Palette.of(ctx));
         }
     }
 
@@ -381,54 +748,6 @@ final class MaterialYou {
         }
     }
 
-    /**
-     * Maps black selected pills ("聊天 ▾", "全部") and green unread dots in LINE's Compose header
-     * and folder tabs to the Material You accent color while preserving pure white backgrounds.
-     */
-    private static void tintComposeSurface(View view, Palette palette) {
-        int accent = palette.accent;
-        Integer applied = BADGE_APPLIED.get(view);
-        if (applied != null && applied == accent && view.getLayerType() == View.LAYER_TYPE_HARDWARE) {
-            return;
-        }
-        float r = Color.red(accent) / 255.0f;
-        float g = Color.green(accent) / 255.0f;
-        float b = Color.blue(accent) / 255.0f;
-        float[] m;
-        if (!palette.dark) {
-            // Light mode: White (255) stays pure White; Black (0) becomes exact Material You accent;
-            // Green dots desaturate into a soft Material You tint.
-            float lr = 0.299f;
-            float lg = 0.587f;
-            float lb = 0.114f;
-            float kr = 1.0f - r;
-            float kg = 1.0f - g;
-            float kb = 1.0f - b;
-            m = new float[]{
-                    kr * lr, kr * lg, kr * lb, 0f, r * 255.0f,
-                    kg * lr, kg * lg, kg * lb, 0f, g * 255.0f,
-                    kb * lr, kb * lg, kb * lb, 0f, b * 255.0f,
-                    0f,      0f,      0f,      1f, 0f
-            };
-        } else {
-            // Dark mode: Black (0) stays Black; White selected pills become Material You light accent.
-            float lr = 0.299f;
-            float lg = 0.587f;
-            float lb = 0.114f;
-            m = new float[]{
-                    r * lr, r * lg, r * lb, 0f, 0f,
-                    g * lr, g * lg, g * lb, 0f, 0f,
-                    b * lr, b * lg, b * lb, 0f, 0f,
-                    0f,     0f,     0f,     1f, 0f
-            };
-        }
-        Paint layerPaint = new Paint();
-        layerPaint.setColorFilter(new android.graphics.ColorMatrixColorFilter(m));
-        view.setLayerType(View.LAYER_TYPE_HARDWARE, layerPaint);
-        BADGE_APPLIED.put(view, accent);
-        COMPOSE_TINTED.put(view, Boolean.TRUE);
-    }
-
     private static void tintBadge(View view, Palette palette) {
         if (!(view instanceof TextView) || view.getVisibility() != View.VISIBLE) {
             return;
@@ -437,7 +756,41 @@ final class MaterialYou {
         if (tv.getCurrentTextColor() != palette.onBadge) {
             tv.setTextColor(palette.onBadge);
         }
-        tintBadgeBg(tv, palette);
+        Drawable bg = tv.getBackground();
+        int[] pad = ORIG_BADGE_PADDING.get(tv);
+        if (pad == null) {
+            Rect rect = new Rect();
+            boolean hasDrawablePad = bg != null && bg.getPadding(rect)
+                    && (rect.left > 0 || rect.right > 0 || rect.top > 0 || rect.bottom > 0);
+            Context ctx = tv.getContext();
+            int minH = BlurBars.dp(ctx, 5.0f);
+            int minV = BlurBars.dp(ctx, 1.0f);
+            int pl = Math.max(minH, Math.max(tv.getPaddingLeft(), hasDrawablePad ? rect.left : 0));
+            int pt = Math.max(minV, Math.max(tv.getPaddingTop(), hasDrawablePad ? rect.top : 0));
+            int pr = Math.max(minH, Math.max(tv.getPaddingRight(), hasDrawablePad ? rect.right : 0));
+            int pb = Math.max(minV, Math.max(tv.getPaddingBottom(), hasDrawablePad ? rect.bottom : 0));
+            pad = new int[]{pl, pt, pr, pb};
+            ORIG_BADGE_PADDING.put(tv, pad);
+        }
+        if (bg instanceof BadgePillDrawable) {
+            BadgePillDrawable pill = (BadgePillDrawable) bg;
+            if (pill.appliedColor != palette.badgeBg) {
+                pill.appliedColor = palette.badgeBg;
+                pill.setColor(palette.badgeBg);
+            }
+        } else {
+            BadgePillDrawable pill = new BadgePillDrawable();
+            pill.setShape(GradientDrawable.RECTANGLE);
+            pill.setCornerRadius(BlurBars.dp(tv.getContext(), 999.0f));
+            pill.appliedColor = palette.badgeBg;
+            pill.setColor(palette.badgeBg);
+            tv.setBackgroundTintList(null);
+            tv.setBackground(pill);
+        }
+        if (tv.getPaddingLeft() != pad[0] || tv.getPaddingTop() != pad[1]
+                || tv.getPaddingRight() != pad[2] || tv.getPaddingBottom() != pad[3]) {
+            tv.setPadding(pad[0], pad[1], pad[2], pad[3]);
+        }
     }
 
     private static void tintBadgeBg(View view, Palette palette) {
@@ -466,228 +819,114 @@ final class MaterialYou {
         }
     }
 
-    static void applyChatRoom(View decorView, View header, View listView) {
+    // =========================================================================
+    // Chat Room Bubbles (Custom Per-Chat / Wallpaper Seed / System Material You)
+    // =========================================================================
+
+    static void applyChatRoom(View decorView, View header, View listView, View skinView) {
         if (decorView == null || header == null) {
             return;
         }
-        String chatId = resolveChatId(decorView, header);
+        String chatTitle = "";
+        View titleView = BlurBars.find(header, "header_title");
+        if (titleView instanceof TextView && ((TextView) titleView).getText() != null) {
+            chatTitle = ((TextView) titleView).getText().toString();
+        }
+        String chatId = resolveChatId(decorView, header, chatTitle);
         if (chatId != null && !chatId.isEmpty()) {
             lastActiveChatId = chatId;
         }
-        View titleView = BlurBars.find(header, "header_title");
-        if (titleView instanceof TextView && ((TextView) titleView).getText() != null) {
-            lastActiveChatTitle = ((TextView) titleView).getText().toString();
+        if (!chatTitle.isEmpty()) {
+            lastActiveChatTitle = chatTitle;
         }
+
+        if (skinView == null) {
+            skinView = BlurBars.find(decorView, "chat_ui_main_skin_view");
+        }
+        boolean dark = (decorView.getResources().getConfiguration().uiMode
+                & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        WallpaperPalette wp = WallpaperPalette.fromSkin(skinView, dark);
+        lastActiveWallpaperPalette = wp;
+
         if (listView instanceof ViewGroup) {
-            applyChatBubbles((ViewGroup) listView, chatId);
+            applyChatBubbles((ViewGroup) listView, chatId, chatTitle, wp);
         }
     }
 
-    /**
-     * Adds a native-styled "Chat bubble color" row to LINE's Chat Room Settings screen
-     * (opened from top-right menu -> Settings, alongside "Background").
-     */
-    static void attachChatSettingsRow(final Activity activity) {
-        if (activity == null || activity.isFinishing()) {
-            return;
-        }
-        String name = activity.getClass().getName();
-        if (!name.endsWith("ChatSettingActivity") && !name.endsWith("SquareChatSettingsActivity")) {
-            return;
-        }
-        View root = activity.findViewById(android.R.id.content);
-        if (!(root instanceof ViewGroup)) {
-            return;
-        }
-        final ViewGroup content = (ViewGroup) root;
-        if (content.findViewWithTag(CHAT_SETTINGS_ROW_TAG) != null) {
-            return;
-        }
-
-        final String chatId = resolveSettingsChatId(activity);
-        final String chatTitle = chatId.equals(lastActiveChatId) ? lastActiveChatTitle : "";
-
-        content.post(() -> {
-            if (activity.isFinishing() || content.findViewWithTag(CHAT_SETTINGS_ROW_TAG) != null) {
-                return;
-            }
-            Locale locale = activity.getResources().getConfiguration().getLocales().get(0);
-            boolean zh = locale != null && "zh".equals(locale.getLanguage());
-            Palette palette = Palette.of(activity);
-            int bgColor = palette.dark ? 0xFF111111 : 0xFFFFFFFF;
-            int titleColor = palette.dark ? 0xFFF2F2F2 : 0xFF111111;
-            int subColor = palette.dark ? 0xFF9E9E9E : 0xFF767676;
-
-            LinearLayout wrapper = new LinearLayout(activity);
-            wrapper.setTag(CHAT_SETTINGS_ROW_TAG);
-            wrapper.setOrientation(LinearLayout.VERTICAL);
-            wrapper.setBackgroundColor(bgColor);
-            wrapper.setElevation(BlurBars.dp(activity, 4.0f));
-
-            // Top hairline divider
-            View divider = new View(activity);
-            divider.setBackgroundColor(palette.dark ? 0x22FFFFFF : 0x1A000000);
-            wrapper.addView(divider, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, BlurBars.dp(activity, 0.7f))));
-
-            // Main clickable row matching LINE ChatSettingActivity style
-            LinearLayout row = new LinearLayout(activity);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            int padH = BlurBars.dp(activity, 20.0f);
-            int padV = BlurBars.dp(activity, 15.0f);
-            row.setPadding(padH, padV, padH, padV);
-            row.setClickable(true);
-            row.setFocusable(true);
-            android.util.TypedValue outValue = new android.util.TypedValue();
-            if (activity.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)) {
-                row.setBackgroundResource(outValue.resourceId);
-            }
-
-            LinearLayout textCol = new LinearLayout(activity);
-            textCol.setOrientation(LinearLayout.VERTICAL);
-            TextView titleTv = new TextView(activity);
-            titleTv.setText(zh ? "聊天氣泡顏色" : "Chat bubble color");
-            titleTv.setTextSize(16.0f);
-            titleTv.setTextColor(titleColor);
-            textCol.addView(titleTv);
-
-            TextView subTv = new TextView(activity);
-            subTv.setText(zh ? "自訂此聊天室的送出與接收氣泡顏色" : "Customize sent & received bubbles for this chat");
-            subTv.setTextSize(12.5f);
-            subTv.setTextColor(subColor);
-            LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            subLp.topMargin = BlurBars.dp(activity, 2.0f);
-            textCol.addView(subTv, subLp);
-
-            row.addView(textCol, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
-
-            // Two live color preview dots (Received & Sent)
-            int dotSize = BlurBars.dp(activity, 18.0f);
-            final View recvDot = new View(activity);
-            LinearLayout.LayoutParams dotLp1 = new LinearLayout.LayoutParams(dotSize, dotSize);
-            dotLp1.setMarginEnd(BlurBars.dp(activity, 6.0f));
-            row.addView(recvDot, dotLp1);
-
-            final View sendDot = new View(activity);
-            LinearLayout.LayoutParams dotLp2 = new LinearLayout.LayoutParams(dotSize, dotSize);
-            dotLp2.setMarginEnd(BlurBars.dp(activity, 10.0f));
-            row.addView(sendDot, dotLp2);
-
-            TextView chevron = new TextView(activity);
-            chevron.setText("›");
-            chevron.setTextSize(22.0f);
-            chevron.setTextColor(subColor);
-            row.addView(chevron);
-
-            final Runnable refreshDots = () -> {
-                Palette p = Palette.of(activity);
-                int cSend = LineSettings.chatBubbleSendColor(chatId);
-                int cRecv = LineSettings.chatBubbleReceiveColor(chatId);
-                styleColorDot(activity, recvDot, cRecv != 0 ? cRecv : p.receiveBubble);
-                styleColorDot(activity, sendDot, cSend != 0 ? cSend : p.sendBubble);
-            };
-            refreshDots.run();
-
-            row.setOnClickListener(v -> {
-                PixelNativeEnhancements.tick(v);
-                showBubbleColorDialog(activity, chatId, chatTitle, () -> {
-                    BUBBLE_APPLIED.clear();
-                    refreshDots.run();
-                });
-            });
-
-            wrapper.addView(row, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-            // Keep clear of system gesture/navigation bar
-            wrapper.setOnApplyWindowInsetsListener((v, insets) -> {
-                int bottomInset = Build.VERSION.SDK_INT >= 30
-                        ? insets.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom
-                        : insets.getSystemWindowInsetBottom();
-                v.setPadding(0, 0, 0, bottomInset);
-                return insets;
-            });
-
-            android.widget.FrameLayout.LayoutParams flp = new android.widget.FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    Gravity.BOTTOM
-            );
-            content.addView(wrapper, flp);
-            wrapper.requestApplyInsets();
-        });
-    }
-
-    private static void styleColorDot(Context ctx, View dot, int color) {
-        GradientDrawable gd = new GradientDrawable();
-        gd.setShape(GradientDrawable.OVAL);
-        gd.setColor(color);
-        gd.setStroke(Math.max(1, BlurBars.dp(ctx, 1.0f)), 0x33888888);
-        dot.setBackground(gd);
-    }
-
-    private static String resolveSettingsChatId(Activity activity) {
-        Intent intent = activity.getIntent();
-        Bundle extras = intent == null ? null : intent.getExtras();
-        if (extras != null) {
-            for (String key : new String[]{"chatId", "chat_id", "mid", "squareChatMid", "EXTRA_CHAT_ID"}) {
-                String val = extras.getString(key);
-                if (val != null && !val.isEmpty()) {
-                    return val;
+    private static int readStoredSendRule(String chatId, String chatTitle) {
+        int val = LineSettings.chatBubbleSendColor(chatId);
+        if (val == 0 && chatTitle != null && !chatTitle.isEmpty()) {
+            String legacyKey = "title_" + chatTitle;
+            if (!legacyKey.equals(chatId)) {
+                int legacy = LineSettings.chatBubbleSendColor(legacyKey);
+                if (legacy != 0) {
+                    LineSettings.setChatBubbleColors(chatId, legacy, LineSettings.chatBubbleReceiveColor(legacyKey));
+                    LineSettings.clearChatBubbleColors(legacyKey);
+                    return legacy;
                 }
             }
         }
-        return (lastActiveChatId != null && !lastActiveChatId.isEmpty()) ? lastActiveChatId : "default_chat";
+        return val;
     }
 
-    private static String resolveChatId(View decorView, View header) {
-        String cached = CHAT_IDS.get(decorView);
-        if (cached != null && !cached.isEmpty()) {
-            return cached;
-        }
-        Activity activity = activityOf(decorView.getContext());
-        if (activity != null) {
-            Intent intent = activity.getIntent();
-            Bundle extras = intent == null ? null : intent.getExtras();
-            if (extras != null) {
-                try {
-                    Object req = extras.get("chatHistoryRequest");
-                    if (req != null) {
-                        Object id = req.getClass().getMethod("getChatId").invoke(req);
-                        if (id instanceof String && !((String) id).isEmpty()) {
-                            CHAT_IDS.put(decorView, (String) id);
-                            return (String) id;
-                        }
-                    }
-                } catch (Throwable ignored) {
-                }
-                for (String key : new String[]{"chatId", "chat_id", "mid"}) {
-                    String val = extras.getString(key);
-                    if (val != null && !val.isEmpty()) {
-                        CHAT_IDS.put(decorView, val);
-                        return val;
-                    }
+    private static int readStoredRecvRule(String chatId, String chatTitle) {
+        int val = LineSettings.chatBubbleReceiveColor(chatId);
+        if (val == 0 && chatTitle != null && !chatTitle.isEmpty()) {
+            String legacyKey = "title_" + chatTitle;
+            if (!legacyKey.equals(chatId)) {
+                int legacy = LineSettings.chatBubbleReceiveColor(legacyKey);
+                if (legacy != 0) {
+                    LineSettings.setChatBubbleColors(chatId, LineSettings.chatBubbleSendColor(legacyKey), legacy);
+                    LineSettings.clearChatBubbleColors(legacyKey);
+                    return legacy;
                 }
             }
         }
-        View titleView = BlurBars.find(header, "header_title");
-        if (titleView instanceof TextView) {
-            CharSequence text = ((TextView) titleView).getText();
-            if (text != null && text.length() > 0) {
-                String fallback = "title_" + text.toString();
-                CHAT_IDS.put(decorView, fallback);
-                return fallback;
-            }
-        }
-        return "default_chat";
+        return val;
     }
 
-    static void applyChatBubbles(ViewGroup listView, String chatId) {
-        int customSend = LineSettings.chatBubbleSendColor(chatId);
-        int customRecv = LineSettings.chatBubbleReceiveColor(chatId);
-        boolean myEnabled = LineSettings.materialYouTheme();
-        Palette palette = (myEnabled || customSend != 0 || customRecv != 0) ? Palette.of(listView.getContext()) : null;
-        int sendColor = customSend != 0 ? customSend : (myEnabled && palette != null ? palette.sendBubble : 0);
-        int recvColor = customRecv != 0 ? customRecv : (myEnabled && palette != null ? palette.receiveBubble : 0);
+    private static int resolveEffectiveBubbleColor(
+            int rule,
+            boolean isSend,
+            Palette myPalette,
+            WallpaperPalette wp
+    ) {
+        // Explicit opaque custom ARGB color (alpha == 0xFF)
+        if ((rule & 0xFF000000) == 0xFF000000) {
+            return rule;
+        }
+        if (rule == MODE_LINE_DEFAULT) {
+            return 0;
+        }
+        if (rule == MODE_WALLPAPER) {
+            if (wp != null && wp.valid) {
+                return isSend ? wp.sendBubble : wp.receiveBubble;
+            }
+            return myPalette != null ? (isSend ? myPalette.sendBubble : myPalette.receiveBubble) : 0;
+        }
+        if (rule == MODE_MATERIAL_YOU) {
+            return myPalette != null ? (isSend ? myPalette.sendBubble : myPalette.receiveBubble) : 0;
+        }
+        // MODE_AUTO (0): follow global preferences
+        if (LineSettings.chatBubbleWallpaper() && wp != null && wp.valid) {
+            return isSend ? wp.sendBubble : wp.receiveBubble;
+        }
+        if (LineSettings.materialYouTheme() && myPalette != null) {
+            return isSend ? myPalette.sendBubble : myPalette.receiveBubble;
+        }
+        return 0;
+    }
+
+    static void applyChatBubbles(ViewGroup listView, String chatId, String chatTitle, WallpaperPalette wp) {
+        int sendRule = readStoredSendRule(chatId, chatTitle);
+        int recvRule = readStoredRecvRule(chatId, chatTitle);
+        boolean needsPalette = LineSettings.materialYouTheme()
+                || sendRule == MODE_MATERIAL_YOU || recvRule == MODE_MATERIAL_YOU
+                || sendRule == MODE_WALLPAPER || recvRule == MODE_WALLPAPER;
+        Palette palette = needsPalette ? Palette.of(listView.getContext()) : null;
+
+        int sendColor = resolveEffectiveBubbleColor(sendRule, true, palette, wp);
+        int recvColor = resolveEffectiveBubbleColor(recvRule, false, palette, wp);
 
         int childCount = listView.getChildCount();
         for (int i = 0; i < childCount; i++) {
@@ -711,62 +950,440 @@ final class MaterialYou {
             if (bubble == null || BUBBLE_APPLIED.remove(bubble) == null) {
                 continue;
             }
+            BUBBLE_BG_REF.remove(bubble);
             Drawable bg = bubble.getBackground();
             if (bg != null) {
                 bg.clearColorFilter();
+                bg.setTintList(null);
             }
+            bubble.setBackgroundTintList(null);
+        }
+        for (String quoteId : BUBBLE_QUOTE_CONTAINER_IDS) {
+            View quote = BlurBars.find(row, quoteId);
+            if (quote == null || BUBBLE_APPLIED.remove(quote) == null) {
+                continue;
+            }
+            BUBBLE_BG_REF.remove(quote);
+            Drawable bg = quote.getBackground();
+            if (bg != null) {
+                bg.clearColorFilter();
+                bg.setTintList(null);
+            }
+            quote.setBackgroundTintList(null);
         }
     }
 
     private static void tintRowBubbles(View row, int bubbleColor) {
         boolean lightBubble = isLightColor(bubbleColor);
         int textColor = lightBubble ? 0xFF1A1C1E : 0xFFFFFFFF;
-        int subTextColor = lightBubble ? 0xB31A1C1E : 0xCCFFFFFF;
+        int subTextColor = lightBubble ? 0xBD1A1C1E : 0xD6FFFFFF;
         int linkColor = lightBubble ? 0xFF0B57D0 : 0xFFA8C7FA;
+        int dividerColor = lightBubble ? 0x26000000 : 0x33FFFFFF;
+        int pressedColor = blend(bubbleColor, 0xFF000000, 0.12f) | 0xFF000000;
+        ColorStateList bubbleCsl = new ColorStateList(
+                new int[][]{
+                        new int[]{android.R.attr.state_pressed},
+                        new int[]{android.R.attr.state_selected},
+                        new int[]{android.R.attr.state_activated},
+                        new int[]{}
+                },
+                new int[]{pressedColor, pressedColor, pressedColor, bubbleColor}
+        );
 
         for (String idName : BUBBLE_CONTAINER_IDS) {
             View bubble = BlurBars.find(row, idName);
             if (bubble == null) {
                 continue;
             }
-            Drawable bg = bubble.getBackground();
-            if (bg == null) {
-                continue;
+            applyBubbleBackgroundTint(bubble, bubbleColor, bubbleCsl);
+            tintBubbleTexts(bubble, textColor, subTextColor, linkColor, dividerColor);
+        }
+
+        int quoteColor = blend(bubbleColor, lightBubble ? 0xFF000000 : 0xFFFFFFFF, 0.08f) | 0xFF000000;
+        ColorStateList quoteCsl = ColorStateList.valueOf(quoteColor);
+        for (String quoteId : BUBBLE_QUOTE_CONTAINER_IDS) {
+            View quote = BlurBars.find(row, quoteId);
+            if (quote != null && quote.getVisibility() == View.VISIBLE) {
+                applyBubbleBackgroundTint(quote, quoteColor, quoteCsl);
+                tintBubbleTexts(quote, textColor, subTextColor, linkColor, dividerColor);
             }
-            Integer prev = BUBBLE_APPLIED.get(bubble);
-            if (prev == null || prev != bubbleColor || bg.getColorFilter() == null) {
-                bg.mutate().setColorFilter(bubbleColor, PorterDuff.Mode.SRC_IN);
-                BUBBLE_APPLIED.put(bubble, bubbleColor);
+        }
+    }
+
+    private static void applyBubbleBackgroundTint(View bubble, int targetColor, ColorStateList csl) {
+        Drawable bg = bubble.getBackground();
+        if (bg == null) {
+            return;
+        }
+        int[] origPad = ORIG_BUBBLE_PADDING.get(bubble);
+        if (origPad == null) {
+            origPad = new int[]{
+                    bubble.getPaddingLeft(),
+                    bubble.getPaddingTop(),
+                    bubble.getPaddingRight(),
+                    bubble.getPaddingBottom()
+            };
+            ORIG_BUBBLE_PADDING.put(bubble, origPad);
+        }
+
+        Integer prevColor = BUBBLE_APPLIED.get(bubble);
+        Drawable prevRef = BUBBLE_BG_REF.get(bubble);
+        ColorStateList curViewTint = bubble.getBackgroundTintList();
+        boolean needsApply = prevColor == null
+                || prevColor != targetColor
+                || prevRef != bg
+                || bg.getColorFilter() == null
+                || curViewTint == null
+                || curViewTint.getDefaultColor() != targetColor;
+
+        if (needsApply) {
+            Drawable mutated = bg.mutate();
+            if (mutated instanceof GradientDrawable) {
+                ((GradientDrawable) mutated).setColor(csl);
             }
-            for (String textId : BUBBLE_TEXT_IDS) {
-                View tv = BlurBars.find(bubble, textId);
-                if (tv instanceof TextView) {
-                    TextView textView = (TextView) tv;
-                    if (textView.getCurrentTextColor() != textColor) {
-                        textView.setTextColor(textColor);
-                    }
-                    textView.setLinkTextColor(linkColor);
+            mutated.setTintMode(PorterDuff.Mode.SRC_IN);
+            mutated.setTintList(csl);
+            mutated.setColorFilter(targetColor, PorterDuff.Mode.SRC_IN);
+
+            // Override LINE's XML android:backgroundTint (@color/chat_ui_row_msg_highlight_color_selector src_atop)
+            bubble.setBackgroundTintMode(PorterDuff.Mode.SRC_IN);
+            bubble.setBackgroundTintList(csl);
+
+            if (bubble.getPaddingLeft() != origPad[0] || bubble.getPaddingTop() != origPad[1]
+                    || bubble.getPaddingRight() != origPad[2] || bubble.getPaddingBottom() != origPad[3]) {
+                bubble.setPadding(origPad[0], origPad[1], origPad[2], origPad[3]);
+            }
+            BUBBLE_APPLIED.put(bubble, targetColor);
+            BUBBLE_BG_REF.put(bubble, mutated);
+        }
+    }
+
+    private static void tintBubbleTexts(View container, int textColor, int subTextColor, int linkColor, int dividerColor) {
+        for (String textId : BUBBLE_TEXT_IDS) {
+            View tv = BlurBars.find(container, textId);
+            if (tv instanceof TextView) {
+                TextView textView = (TextView) tv;
+                if (textView.getCurrentTextColor() != textColor) {
+                    textView.setTextColor(textColor);
                 }
+                textView.setLinkTextColor(linkColor);
             }
-            for (String subId : BUBBLE_SUBTEXT_IDS) {
-                View tv = BlurBars.find(bubble, subId);
-                if (tv instanceof TextView) {
-                    TextView textView = (TextView) tv;
-                    if (textView.getCurrentTextColor() != subTextColor) {
-                        textView.setTextColor(subTextColor);
-                    }
+        }
+        for (String subId : BUBBLE_SUBTEXT_IDS) {
+            View tv = BlurBars.find(container, subId);
+            if (tv instanceof TextView) {
+                TextView textView = (TextView) tv;
+                if (textView.getCurrentTextColor() != subTextColor) {
+                    textView.setTextColor(subTextColor);
                 }
             }
         }
+        View divider = BlurBars.find(container, "chat_ui_divider");
+        if (divider != null && divider.getVisibility() == View.VISIBLE) {
+            divider.setBackgroundColor(dividerColor);
+        }
+    }
+
+    // =========================================================================
+    // Chat Room ID Resolution (ClassLoader-safe for Parcelable ChatHistoryRequest)
+    // =========================================================================
+
+    private static String extractChatIdFromIntent(Activity activity) {
+        if (activity == null) {
+            return null;
+        }
+        try {
+            Intent intent = activity.getIntent();
+            if (intent == null) {
+                return null;
+            }
+            // Ensure Activity's APK ClassLoader is installed before unmarshalling Parcelables!
+            intent.setExtrasClassLoader(activity.getClassLoader());
+            for (String key : new String[]{"chatId", "chat_id", "mid", "squareChatMid", "EXTRA_CHAT_ID"}) {
+                String val = intent.getStringExtra(key);
+                if (val != null && !val.isEmpty()) {
+                    return val;
+                }
+            }
+            Bundle extras = intent.getExtras();
+            if (extras != null) {
+                extras.setClassLoader(activity.getClassLoader());
+                for (String reqKey : new String[]{"chatHistoryRequest", "request", "CHAT_HISTORY_REQUEST"}) {
+                    if (!extras.containsKey(reqKey)) {
+                        continue;
+                    }
+                    Object req = extras.get(reqKey);
+                    String id = extractChatIdFromRequestObject(req);
+                    if (id != null && !id.isEmpty()) {
+                        return id;
+                    }
+                }
+                for (String key : extras.keySet()) {
+                    Object val = extras.get(key);
+                    if (val != null && val.getClass().getName().contains("ChatHistoryRequest")) {
+                        String id = extractChatIdFromRequestObject(val);
+                        if (id != null && !id.isEmpty()) {
+                            return id;
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        // Fallback: inspect fields on the Activity for ChatHistoryRequest / ViewModel holders
+        try {
+            for (Class<?> cls = activity.getClass(); cls != null && cls != Activity.class; cls = cls.getSuperclass()) {
+                for (Field f : cls.getDeclaredFields()) {
+                    String typeName = f.getType().getName();
+                    if (typeName.contains("ChatHistoryRequest")) {
+                        f.setAccessible(true);
+                        Object holder = f.get(activity);
+                        String id = extractChatIdFromRequestObject(holder);
+                        if (id != null && !id.isEmpty()) {
+                            return id;
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    private static String extractChatIdFromRequestObject(Object obj) {
+        if (obj == null) {
+            return null;
+        }
+        for (String methodName : new String[]{"getChatId", "c", "a"}) {
+            try {
+                Method m = obj.getClass().getMethod(methodName);
+                if (m.getReturnType() == String.class && m.getParameterCount() == 0) {
+                    Object res = m.invoke(obj);
+                    if (res instanceof String && !((String) res).isEmpty()) {
+                        return (String) res;
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        try {
+            for (Field f : obj.getClass().getDeclaredFields()) {
+                if (f.getType() == String.class && ("chatId".equals(f.getName()) || "a".equals(f.getName()))) {
+                    f.setAccessible(true);
+                    Object res = f.get(obj);
+                    if (res instanceof String && !((String) res).isEmpty()) {
+                        return (String) res;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    private static String resolveSettingsChatId(Activity activity) {
+        String extracted = extractChatIdFromIntent(activity);
+        if (extracted != null && !extracted.isEmpty()) {
+            return extracted;
+        }
+        return (lastActiveChatId != null && !lastActiveChatId.isEmpty()) ? lastActiveChatId : "default_chat";
+    }
+
+    private static String resolveChatId(View decorView, View header, String chatTitle) {
+        String cached = CHAT_IDS.get(decorView);
+        if (cached != null && !cached.isEmpty() && !cached.startsWith("title_")) {
+            return cached;
+        }
+        Activity activity = activityOf(decorView.getContext());
+        String extracted = extractChatIdFromIntent(activity);
+        if (extracted != null && !extracted.isEmpty()) {
+            CHAT_IDS.put(decorView, extracted);
+            return extracted;
+        }
+        if (chatTitle != null && !chatTitle.isEmpty()) {
+            String fallback = "title_" + chatTitle;
+            CHAT_IDS.put(decorView, fallback);
+            return fallback;
+        }
+        return "default_chat";
+    }
+
+    // =========================================================================
+    // Chat Room Settings Row & Per-Chat Color / Mode Picker Dialog
+    // =========================================================================
+
+    static void attachChatSettingsRow(final Activity activity) {
+        if (activity == null || activity.isFinishing()) {
+            return;
+        }
+        String name = activity.getClass().getName();
+        if (!name.endsWith("ChatSettingActivity") && !name.endsWith("SquareChatSettingsActivity")) {
+            return;
+        }
+        View root = activity.findViewById(android.R.id.content);
+        if (!(root instanceof ViewGroup)) {
+            return;
+        }
+        final ViewGroup content = (ViewGroup) root;
+        if (content.findViewWithTag(CHAT_SETTINGS_ROW_TAG) != null) {
+            return;
+        }
+
+        final String chatId = resolveSettingsChatId(activity);
+        final String chatTitle = lastActiveChatTitle != null ? lastActiveChatTitle : "";
+
+        content.post(() -> {
+            if (activity.isFinishing() || content.findViewWithTag(CHAT_SETTINGS_ROW_TAG) != null) {
+                return;
+            }
+            Locale locale = activity.getResources().getConfiguration().getLocales().get(0);
+            boolean zh = locale != null && "zh".equals(locale.getLanguage());
+            Palette palette = Palette.of(activity);
+            int bgColor = palette.dark ? 0xFF111111 : 0xFFFFFFFF;
+            int titleColor = palette.dark ? 0xFFF2F2F2 : 0xFF111111;
+            int subColor = palette.dark ? 0xFF9E9E9E : 0xFF767676;
+
+            LinearLayout wrapper = new LinearLayout(activity);
+            wrapper.setTag(CHAT_SETTINGS_ROW_TAG);
+            wrapper.setOrientation(LinearLayout.VERTICAL);
+            wrapper.setBackgroundColor(bgColor);
+            wrapper.setElevation(BlurBars.dp(activity, 4.0f));
+
+            View divider = new View(activity);
+            divider.setBackgroundColor(palette.dark ? 0x22FFFFFF : 0x1A000000);
+            wrapper.addView(divider, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, BlurBars.dp(activity, 0.7f))));
+
+            LinearLayout row = new LinearLayout(activity);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            int basePadH = BlurBars.dp(activity, 20.0f);
+            int adaptivePadH = PixelNativeEnhancements.computeAdaptiveSidePadding(activity, content.getWidth(), 640.0f);
+            int padV = BlurBars.dp(activity, 15.0f);
+            row.setPadding(basePadH + adaptivePadH, padV, basePadH + adaptivePadH, padV);
+            row.setClickable(true);
+            PixelNativeEnhancements.enhanceInteractive(row);
+            android.util.TypedValue outValue = new android.util.TypedValue();
+            if (activity.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)) {
+                row.setBackgroundResource(outValue.resourceId);
+            }
+
+            LinearLayout textCol = new LinearLayout(activity);
+            textCol.setOrientation(LinearLayout.VERTICAL);
+            TextView titleTv = new TextView(activity);
+            titleTv.setText(zh ? "聊天氣泡顏色" : "Chat bubble color");
+            titleTv.setTextSize(16.0f);
+            titleTv.setTextColor(titleColor);
+            textCol.addView(titleTv);
+
+            final TextView subTv = new TextView(activity);
+            subTv.setTextSize(12.5f);
+            subTv.setTextColor(subColor);
+            LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            subLp.topMargin = BlurBars.dp(activity, 2.0f);
+            textCol.addView(subTv, subLp);
+
+            row.addView(textCol, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
+
+            int dotSize = BlurBars.dp(activity, 18.0f);
+            final View recvDot = new View(activity);
+            LinearLayout.LayoutParams dotLp1 = new LinearLayout.LayoutParams(dotSize, dotSize);
+            dotLp1.setMarginEnd(BlurBars.dp(activity, 6.0f));
+            row.addView(recvDot, dotLp1);
+
+            final View sendDot = new View(activity);
+            LinearLayout.LayoutParams dotLp2 = new LinearLayout.LayoutParams(dotSize, dotSize);
+            dotLp2.setMarginEnd(BlurBars.dp(activity, 10.0f));
+            row.addView(sendDot, dotLp2);
+
+            TextView chevron = new TextView(activity);
+            chevron.setText("›");
+            chevron.setTextSize(22.0f);
+            chevron.setTextColor(subColor);
+            row.addView(chevron);
+
+            final Runnable refreshDots = () -> {
+                Palette p = Palette.of(activity);
+                WallpaperPalette wp = lastActiveWallpaperPalette;
+                int sendRule = readStoredSendRule(chatId, chatTitle);
+                int recvRule = readStoredRecvRule(chatId, chatTitle);
+                int effSend = resolveEffectiveBubbleColor(sendRule, true, p, wp);
+                int effRecv = resolveEffectiveBubbleColor(recvRule, false, p, wp);
+                styleColorDot(activity, recvDot, effRecv != 0 ? effRecv : (p.dark ? 0xFF2B2D31 : 0xFFFFFFFF));
+                styleColorDot(activity, sendDot, effSend != 0 ? effSend : 0xFF66D575);
+                subTv.setText(describeBubbleMode(sendRule, recvRule, zh));
+            };
+            refreshDots.run();
+
+            row.setOnClickListener(v -> {
+                PixelNativeEnhancements.tick(v);
+                showBubbleColorDialog(activity, chatId, chatTitle, () -> {
+                    BUBBLE_APPLIED.clear();
+                    BUBBLE_BG_REF.clear();
+                    refreshDots.run();
+                });
+            });
+
+            wrapper.addView(row, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+            wrapper.setOnApplyWindowInsetsListener((v, insets) -> {
+                int bottomInset = Build.VERSION.SDK_INT >= 30
+                        ? insets.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom
+                        : insets.getSystemWindowInsetBottom();
+                int[] cutouts = PixelNativeEnhancements.safeHorizontalCutoutInsets(v);
+                int side = Math.max(
+                        PixelNativeEnhancements.computeAdaptiveSidePadding(activity, v.getWidth(), 640.0f),
+                        Math.max(cutouts[0], cutouts[1])
+                );
+                row.setPadding(basePadH + side, padV, basePadH + side, padV);
+                v.setPadding(0, 0, 0, bottomInset);
+                return insets;
+            });
+
+            FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.BOTTOM
+            );
+            content.addView(wrapper, flp);
+            wrapper.requestApplyInsets();
+        });
+    }
+
+    private static String describeBubbleMode(int sendRule, int recvRule, boolean zh) {
+        if ((sendRule & 0xFF000000) == 0xFF000000 || (recvRule & 0xFF000000) == 0xFF000000) {
+            return zh ? "已套用此聊天室專屬自訂氣泡顏色" : "Custom colors active for this chat";
+        }
+        if (sendRule == MODE_WALLPAPER) {
+            return zh ? "自動抓取此聊天室背景圖片主色" : "Using this chat's wallpaper seed color";
+        }
+        if (sendRule == MODE_MATERIAL_YOU) {
+            return zh ? "使用系統 Material You 動態配色" : "Using Android Material You palette";
+        }
+        if (sendRule == MODE_LINE_DEFAULT) {
+            return zh ? "維持 LINE 原版預設氣泡顏色" : "Using LINE default bubble colors";
+        }
+        if (LineSettings.chatBubbleWallpaper()) {
+            return zh ? "自動（優先抓取聊天室背景主色 / Material You）" : "Auto (Chat wallpaper seed / Material You)";
+        }
+        return zh ? "跟隨全域設定 · 點擊可自訂送出與接收氣泡" : "Follows global setting · Tap to customize";
+    }
+
+    private static void styleColorDot(Context ctx, View dot, int color) {
+        GradientDrawable gd = new GradientDrawable();
+        gd.setShape(GradientDrawable.OVAL);
+        gd.setColor(color);
+        gd.setStroke(Math.max(1, BlurBars.dp(ctx, 1.0f)), 0x33888888);
+        dot.setBackground(gd);
     }
 
     private static void showBubbleColorDialog(Activity activity, String chatId, String chatTitle, Runnable onChanged) {
         Locale locale = activity.getResources().getConfiguration().getLocales().get(0);
         boolean zh = locale != null && "zh".equals(locale.getLanguage());
-        Palette palette = Palette.of(activity);
+        final Palette palette = Palette.of(activity);
+        final WallpaperPalette wp = lastActiveWallpaperPalette;
 
-        final int[] selectedSend = {LineSettings.chatBubbleSendColor(chatId)};
-        final int[] selectedRecv = {LineSettings.chatBubbleReceiveColor(chatId)};
+        final int[] selectedSend = {readStoredSendRule(chatId, chatTitle)};
+        final int[] selectedRecv = {readStoredRecvRule(chatId, chatTitle)};
 
         ScrollView scroll = new ScrollView(activity);
         LinearLayout root = new LinearLayout(activity);
@@ -775,7 +1392,7 @@ final class MaterialYou {
         root.setPadding(pad, BlurBars.dp(activity, 12.0f), pad, BlurBars.dp(activity, 8.0f));
         scroll.addView(root);
 
-        // Live preview row
+        // Live preview card
         LinearLayout previewBox = new LinearLayout(activity);
         previewBox.setOrientation(LinearLayout.VERTICAL);
         int previewPad = BlurBars.dp(activity, 12.0f);
@@ -803,30 +1420,50 @@ final class MaterialYou {
         previewBox.addView(sendPreview, sendLp);
 
         LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        previewLp.bottomMargin = BlurBars.dp(activity, 16f);
+        previewLp.bottomMargin = BlurBars.dp(activity, 14f);
         root.addView(previewBox, previewLp);
 
+        final View[][] sendSwatches = new View[1][];
+        final View[][] recvSwatches = new View[1][];
+        final TextView[][] modeChipsHolder = new TextView[1][];
+
         final Runnable updatePreview = () -> {
-            int effSend = selectedSend[0] != 0 ? selectedSend[0] : palette.sendBubble;
-            int effRecv = selectedRecv[0] != 0 ? selectedRecv[0] : palette.receiveBubble;
-            stylePreviewBubble(sendPreview, effSend, BlurBars.dp(activity, 16f));
-            stylePreviewBubble(recvPreview, effRecv, BlurBars.dp(activity, 16f));
+            int effSend = resolveEffectiveBubbleColor(selectedSend[0], true, palette, wp);
+            int effRecv = resolveEffectiveBubbleColor(selectedRecv[0], false, palette, wp);
+            int previewSend = effSend != 0 ? effSend : 0xFF8DE971;
+            int previewRecv = effRecv != 0 ? effRecv : (palette.dark ? 0xFF2B2D31 : 0xFFFFFFFF);
+            stylePreviewBubble(sendPreview, previewSend, BlurBars.dp(activity, 16f));
+            stylePreviewBubble(recvPreview, previewRecv, BlurBars.dp(activity, 16f));
+            if (sendSwatches[0] != null) {
+                refreshSwatchBorders(activity, sendSwatches[0], selectedSend[0]);
+            }
+            if (recvSwatches[0] != null) {
+                refreshSwatchBorders(activity, recvSwatches[0], selectedRecv[0]);
+            }
+            if (modeChipsHolder[0] != null) {
+                refreshModeChips(activity, modeChipsHolder[0], selectedSend[0], selectedRecv[0], palette);
+            }
         };
 
+        // Quick mode selector pills: Auto / Chat Wallpaper / System Material You / LINE Default
+        root.addView(sectionLabel(activity, zh ? "配色來源模式" : "Color source mode", palette.accent));
+        root.addView(buildModeChipBar(activity, selectedSend, selectedRecv, updatePreview, modeChipsHolder, palette, zh));
+
         // Sent bubble picker
-        root.addView(sectionLabel(activity, zh ? "我的訊息氣泡顏色（送出）" : "My bubble color (Sent)", palette.accent));
-        final View[][] sendSwatches = new View[1][];
-        root.addView(buildSwatchGrid(activity, selectedSend, palette.sendBubble, updatePreview, sendSwatches, zh));
-        root.addView(buildHexRow(activity, selectedSend, updatePreview, sendSwatches, zh));
+        TextView sendLabel = sectionLabel(activity, zh ? "我的訊息氣泡自訂色（送出）" : "My bubble custom color (Sent)", palette.accent);
+        LinearLayout.LayoutParams slLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        slLp.topMargin = BlurBars.dp(activity, 12f);
+        root.addView(sendLabel, slLp);
+        root.addView(buildSwatchGrid(activity, selectedSend, updatePreview, sendSwatches));
+        root.addView(buildHexRow(activity, selectedSend, updatePreview, zh));
 
         // Received bubble picker
-        TextView recvLabel = sectionLabel(activity, zh ? "對方訊息氣泡顏色（接收）" : "Their bubble color (Received)", palette.accent);
+        TextView recvLabel = sectionLabel(activity, zh ? "對方訊息氣泡自訂色（接收）" : "Their bubble custom color (Received)", palette.accent);
         LinearLayout.LayoutParams rlLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         rlLp.topMargin = BlurBars.dp(activity, 14f);
         root.addView(recvLabel, rlLp);
-        final View[][] recvSwatches = new View[1][];
-        root.addView(buildSwatchGrid(activity, selectedRecv, palette.receiveBubble, updatePreview, recvSwatches, zh));
-        root.addView(buildHexRow(activity, selectedRecv, updatePreview, recvSwatches, zh));
+        root.addView(buildSwatchGrid(activity, selectedRecv, updatePreview, recvSwatches));
+        root.addView(buildHexRow(activity, selectedRecv, updatePreview, zh));
 
         updatePreview.run();
 
@@ -840,23 +1477,103 @@ final class MaterialYou {
                 .setPositiveButton(zh ? "套用" : "Apply", (d, w) -> {
                     PixelNativeEnhancements.confirm(scroll);
                     LineSettings.setChatBubbleColors(chatId, selectedSend[0], selectedRecv[0]);
+                    BUBBLE_APPLIED.clear();
+                    BUBBLE_BG_REF.clear();
                     if (onChanged != null) onChanged.run();
                 })
-                .setNeutralButton(zh ? "重設預設" : "Reset", (d, w) -> {
+                .setNeutralButton(zh ? "重設自動" : "Reset", (d, w) -> {
                     PixelNativeEnhancements.confirm(scroll);
                     LineSettings.clearChatBubbleColors(chatId);
+                    BUBBLE_APPLIED.clear();
+                    BUBBLE_BG_REF.clear();
                     if (onChanged != null) onChanged.run();
                 })
                 .setNegativeButton(zh ? "取消" : "Cancel", null)
                 .create();
         PixelNativeEnhancements.applyDialogBlur(dialog);
         dialog.show();
+        PixelNativeEnhancements.constrainDialogWidth(dialog, 520.0f);
+    }
+
+    private static View buildModeChipBar(
+            Context ctx,
+            final int[] selectedSend,
+            final int[] selectedRecv,
+            final Runnable updatePreview,
+            final TextView[][] holder,
+            Palette palette,
+            boolean zh
+    ) {
+        final int[] modes = {MODE_AUTO, MODE_WALLPAPER, MODE_MATERIAL_YOU, MODE_LINE_DEFAULT};
+        final String[] labels = zh
+                ? new String[]{"自動", "背景主色", "系統 Material You", "LINE 原版"}
+                : new String[]{"Auto", "Chat Wallpaper", "Material You", "LINE Default"};
+
+        HorizontalScrollView hsv = new HorizontalScrollView(ctx);
+        hsv.setHorizontalScrollBarEnabled(false);
+        LinearLayout bar = new LinearLayout(ctx);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        TextView[] chips = new TextView[modes.length];
+        holder[0] = chips;
+
+        int padH = BlurBars.dp(ctx, 12f);
+        int padV = BlurBars.dp(ctx, 7f);
+        int gap = BlurBars.dp(ctx, 8f);
+        for (int i = 0; i < modes.length; i++) {
+            final int mode = modes[i];
+            TextView chip = new TextView(ctx);
+            chip.setText(labels[i]);
+            chip.setTextSize(12.5f);
+            chip.setPadding(padH, padV, padH, padV);
+            chip.setGravity(Gravity.CENTER);
+            PixelNativeEnhancements.enhanceInteractive(chip);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+            );
+            if (i < modes.length - 1) {
+                lp.setMarginEnd(gap);
+            }
+            chip.setLayoutParams(lp);
+            chip.setOnClickListener(v -> {
+                PixelNativeEnhancements.tick(v);
+                selectedSend[0] = mode;
+                selectedRecv[0] = mode;
+                updatePreview.run();
+            });
+            chips[i] = chip;
+            bar.addView(chip);
+        }
+        hsv.addView(bar);
+        refreshModeChips(ctx, chips, selectedSend[0], selectedRecv[0], palette);
+        return hsv;
+    }
+
+    private static void refreshModeChips(Context ctx, TextView[] chips, int sendRule, int recvRule, Palette palette) {
+        final int[] modes = {MODE_AUTO, MODE_WALLPAPER, MODE_MATERIAL_YOU, MODE_LINE_DEFAULT};
+        float radius = BlurBars.dp(ctx, 999f);
+        int strokePx = Math.max(1, BlurBars.dp(ctx, 1f));
+        for (int i = 0; i < chips.length; i++) {
+            boolean active = (sendRule == modes[i] && recvRule == modes[i]);
+            GradientDrawable gd = new GradientDrawable();
+            gd.setCornerRadius(radius);
+            if (active) {
+                gd.setColor(palette.accent);
+                chips[i].setTextColor(isLightColor(palette.accent) ? 0xFF1A1C1E : 0xFFFFFFFF);
+            } else {
+                gd.setColor(palette.dark ? 0xFF252830 : 0xFFF1F4F9);
+                gd.setStroke(strokePx, palette.dark ? 0x33FFFFFF : 0x22000000);
+                chips[i].setTextColor(palette.dark ? 0xFFE2E5EC : 0xFF33363C);
+            }
+            chips[i].setBackground(gd);
+        }
     }
 
     private static void stylePreviewBubble(TextView tv, int color, float radius) {
         GradientDrawable gd = new GradientDrawable();
         gd.setCornerRadius(radius);
         gd.setColor(color);
+        gd.setStroke(Math.max(1, BlurBars.dp(tv.getContext(), 0.8f)), 0x22888888);
         tv.setBackground(gd);
         tv.setTextColor(isLightColor(color) ? 0xFF1A1C1E : 0xFFFFFFFF);
     }
@@ -873,10 +1590,8 @@ final class MaterialYou {
     private static LinearLayout buildSwatchGrid(
             Context ctx,
             final int[] target,
-            final int autoColor,
             final Runnable updatePreview,
-            final View[][] swatchHolder,
-            boolean zh
+            final View[][] swatchHolder
     ) {
         LinearLayout grid = new LinearLayout(ctx);
         grid.setOrientation(LinearLayout.VERTICAL);
@@ -896,13 +1611,8 @@ final class MaterialYou {
                 grid.addView(row, rlp);
             }
             final int color = PRESET_COLORS[i];
-            TextView circle = new TextView(ctx);
-            circle.setGravity(Gravity.CENTER);
-            circle.setTextSize(10f);
-            if (color == 0) {
-                circle.setText(zh ? "自動" : "Auto");
-                circle.setTextColor(isLightColor(autoColor) ? 0xFF1A1C1E : 0xFFFFFFFF);
-            }
+            View circle = new View(ctx);
+            PixelNativeEnhancements.enhanceInteractive(circle);
             LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(size, size);
             clp.setMarginEnd(gap);
             circle.setLayoutParams(clp);
@@ -910,25 +1620,23 @@ final class MaterialYou {
             circle.setOnClickListener(v -> {
                 PixelNativeEnhancements.tick(v);
                 target[0] = color;
-                refreshSwatchBorders(ctx, swatches, target[0], autoColor);
                 updatePreview.run();
             });
             row.addView(circle);
         }
-        refreshSwatchBorders(ctx, swatches, target[0], autoColor);
+        refreshSwatchBorders(ctx, swatches, target[0]);
         return grid;
     }
 
-    private static void refreshSwatchBorders(Context ctx, View[] swatches, int selectedColor, int autoColor) {
-        int strokeSelected = BlurBars.dp(ctx, 2.5f);
-        int strokeNormal = BlurBars.dp(ctx, 1.0f);
+    private static void refreshSwatchBorders(Context ctx, View[] swatches, int selectedColor) {
+        int strokeSelected = BlurBars.dp(ctx, 2.8f);
+        int strokeNormal = Math.max(1, BlurBars.dp(ctx, 1.0f));
         for (int i = 0; i < swatches.length; i++) {
             int color = PRESET_COLORS[i];
-            int fill = color == 0 ? autoColor : color;
             boolean isSelected = selectedColor == color;
             GradientDrawable gd = new GradientDrawable();
             gd.setShape(GradientDrawable.OVAL);
-            gd.setColor(fill);
+            gd.setColor(color);
             gd.setStroke(isSelected ? strokeSelected : strokeNormal, isSelected ? 0xFF1A73E8 : 0x44888888);
             swatches[i].setBackground(gd);
         }
@@ -938,7 +1646,6 @@ final class MaterialYou {
             Context ctx,
             final int[] target,
             final Runnable updatePreview,
-            final View[][] swatchHolder,
             boolean zh
     ) {
         LinearLayout row = new LinearLayout(ctx);
@@ -950,27 +1657,26 @@ final class MaterialYou {
         hexInput.setSingleLine(true);
         hexInput.setInputType(InputType.TYPE_CLASS_TEXT);
         hexInput.setTextSize(13f);
-        if (target[0] != 0) {
+        if ((target[0] & 0xFF000000) == 0xFF000000) {
             hexInput.setText(String.format(Locale.US, "#%06X", 0xFFFFFF & target[0]));
         }
         LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         row.addView(hexInput, elp);
 
         TextView applyBtn = new TextView(ctx);
-        applyBtn.setText(zh ? "預覽" : "Set");
+        applyBtn.setText(zh ? "套用色碼" : "Set");
         applyBtn.setTextSize(13f);
         applyBtn.setTextColor(accentColor(ctx));
         int bp = BlurBars.dp(ctx, 10f);
         applyBtn.setPadding(bp, bp, bp, bp);
+        PixelNativeEnhancements.enhanceInteractive(applyBtn);
         applyBtn.setOnClickListener(v -> {
             String raw = hexInput.getText().toString().trim();
             if (!raw.startsWith("#")) raw = "#" + raw;
             try {
                 int parsed = Color.parseColor(raw);
                 target[0] = parsed | 0xFF000000;
-                if (swatchHolder[0] != null) {
-                    refreshSwatchBorders(ctx, swatchHolder[0], target[0], Palette.of(ctx).sendBubble);
-                }
+                PixelNativeEnhancements.tick(v);
                 updatePreview.run();
             } catch (IllegalArgumentException e) {
                 Toast.makeText(ctx, zh ? "色碼格式錯誤（例如 #FF6B9D）" : "Invalid hex color (e.g. #FF6B9D)", Toast.LENGTH_SHORT).show();
@@ -984,7 +1690,7 @@ final class MaterialYou {
         return Color.luminance(color | 0xFF000000) > 0.42f;
     }
 
-    private static int blend(int base, int overlay, float ratio) {
+    static int blend(int base, int overlay, float ratio) {
         float inv = 1.0f - ratio;
         int r = Math.round(Color.red(base) * inv + Color.red(overlay) * ratio);
         int g = Math.round(Color.green(base) * inv + Color.green(overlay) * ratio);

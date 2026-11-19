@@ -99,11 +99,25 @@ final class LineSettingsScreen {
         addSwitches(activity, content);
         addCredits(activity, content);
 
-        // The dialog draws behind the system bars, so the screen keeps clear of them.
+        // The dialog draws behind the system bars, so the screen keeps clear of them and cutouts,
+        // while bounding content width on foldables, tablets, and desktop windows.
         root.setOnApplyWindowInsetsListener((view, insets) -> {
-            android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
+            android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            int side = PixelNativeEnhancements.computeAdaptiveSidePadding(
+                    activity,
+                    view.getWidth() - bars.left - bars.right,
+                    640.0f
+            );
+            content.setPadding(side, 0, side, 0);
             return insets;
+        });
+        root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or2, ob) -> {
+            int avail = (r - l) - v.getPaddingLeft() - v.getPaddingRight();
+            int side = PixelNativeEnhancements.computeAdaptiveSidePadding(activity, avail, 640.0f);
+            if (content.getPaddingLeft() != side || content.getPaddingRight() != side) {
+                content.setPadding(side, 0, side, 0);
+            }
         });
 
         dialog.setContentView(root);
@@ -280,7 +294,11 @@ final class LineSettingsScreen {
                         true, null));
                 content.addView(toggle(activity, LineSettings.MATERIAL_YOU_THEME,
                         t("Material You dynamic colors", "Material You 動態配色"),
-                        t("Applies your Android wallpaper palette across LINE, including all chat bubbles, unread badges, and settings accents. Open any chat's menu -> Settings -> Chat bubble color to customize that chat individually.", "將系統桌布的 Material You 個人調色套用到 LINE，包含所有聊天氣泡、未讀紅點/數字徽章與設定強調色。可於聊天室右上角選單 → 設定 → 聊天氣泡顏色單獨自訂各聊天室氣泡。"),
+                        t("Applies your Android wallpaper palette across LINE, including chat bubbles, unread count badges, folder tabs, and settings accents. Open any chat's menu -> Settings -> Chat bubble color to customize that chat individually.", "將系統桌布的 Material You 個人調色套用到 LINE，包含聊天氣泡、未讀訊息數字膠囊、分類膠囊與設定強調色。可於聊天室右上角選單 → 設定 → 聊天氣泡顏色單獨自訂各聊天室氣泡。"),
+                        true, null));
+                content.addView(toggle(activity, LineSettings.CHAT_BUBBLE_WALLPAPER,
+                        t("Auto-extract chat wallpaper color for bubbles", "聊天氣泡自動抓取聊天室背景主色"),
+                        t("Automatically picks harmonious sent and received bubble colors from each chat room's background image. Chats with no background image fall back to Material You.", "自動從各聊天室的背景圖片擷取主色調來搭配送出與接收氣泡；無背景圖片的聊天室則自動使用系統 Material You 配色。"),
                         true, null));
                 content.addView(toggle(activity, LineSettings.MATERIAL_YOU_NAV_BAR,
                         t("Material You bottom navigation bar", "底部導覽列使用 Material You 配色"),
@@ -295,8 +313,8 @@ final class LineSettingsScreen {
                         t("Uses Android 15+ LTPO touch-boost so scrolling jumps smoothly to 120Hz on touch and idles cleanly. Disabled in Battery Saver.", "使用 Android 15+ 原生 LTPO 觸控升頻 API，觸碰瞬間平滑升至高更新率，靜止時自動降頻省電。"),
                         true, null));
                 content.addView(toggle(activity, LineSettings.PIXEL_FOLD_ADAPTIVE,
-                        t("Foldable & large-screen adaptive chat", "摺疊機與大螢幕自適應排版"),
-                        t("Centers the chat list and input bar to a comfortable reading width when unfolded on Pixel Fold or tablets, while keeping wallpaper full-bleed.", "在 Pixel Fold 展開或平板大螢幕上自動置中聊天內容與輸入列至舒適閱讀寬度，同時保留全螢幕背景。"),
+                        t("Google Play Adaptive Quality layout", "摺疊機、平板與多視窗自適應排版"),
+                        t("Unlocks large-screen rotation, centers chats & dialogs across 1:1, 4:3, and 16:9 windows, respects hinge & cutout insets, and supports mouse/stylus hover.", "依循 Google Play 自適應品質標準：大螢幕自動解鎖旋轉限制，針對 1:1、4:3 與 16:9 視窗置中最佳閱讀寬度、避開摺疊轉軸與挖孔，並支援滑鼠與觸控筆懸停回饋。"),
                         true, null));
                 content.addView(toggle(activity, LineSettings.PIXEL_WINDOW_BLUR,
                         t("Hardware dialog blur", "系統硬體加速毛玻璃視窗（Android 12+）"),
@@ -398,6 +416,7 @@ final class LineSettingsScreen {
                     .create();
             PixelNativeEnhancements.applyDialogBlur(dialog);
             dialog.show();
+            PixelNativeEnhancements.constrainDialogWidth(dialog, 480.0f);
         });
         return row;
     }
@@ -438,6 +457,7 @@ final class LineSettingsScreen {
         if (titleColors != null) back.setImageTintList(titleColors);
         back.setContentDescription(t("Back", "返回"));
         back.setPadding(dp(activity, 4), 0, 0, 0);
+        PixelNativeEnhancements.enhanceInteractive(back);
         back.setOnClickListener(v -> dialog.dismiss());
         header.addView(back, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, height));
 
@@ -463,6 +483,7 @@ final class LineSettingsScreen {
         row.findViewById(id(activity, "setting_divider", "id")).setVisibility(View.GONE);
         View container = row.findViewById(id(activity, "setting_item_container", "id"));
         look.press(container);
+        PixelNativeEnhancements.enhanceInteractive(container);
         CheckedTextView toggle = row.findViewById(id(activity, "setting_switch", "id"));
         toggle.setChecked(LineSettings.isOn(key, defaultOn));
         container.setOnClickListener(v -> {
@@ -487,6 +508,7 @@ final class LineSettingsScreen {
         View container = row.findViewById(id(activity, "setting_item_container", "id"));
         container.setDuplicateParentStateEnabled(true);
         look.press(container);
+        PixelNativeEnhancements.enhanceInteractive(row);
         return row;
     }
 
@@ -684,12 +706,15 @@ final class LineSettingsScreen {
         ScrollView scroll = new ScrollView(activity);
         scroll.addView(text);
 
-        new AlertDialog.Builder(activity)
+        AlertDialog dialog = new AlertDialog.Builder(activity)
                 .setTitle(t("License", "授權條款"))
                 .setView(scroll)
                 .setNegativeButton(t("Full license", "完整授權條款"), (d, w) -> open(activity, LICENSE_URL))
                 .setPositiveButton(t("Close", "關閉"), null)
-                .show();
+                .create();
+        PixelNativeEnhancements.applyDialogBlur(dialog);
+        dialog.show();
+        PixelNativeEnhancements.constrainDialogWidth(dialog, 540.0f);
     }
 
     private static void open(Activity activity, String url) {
