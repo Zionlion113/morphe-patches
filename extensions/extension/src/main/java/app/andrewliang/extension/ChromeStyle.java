@@ -50,6 +50,14 @@ final class ChromeStyle {
             newBottomAlpha = BOT_SAVER;
             newTopDarkIcons = false;
             newBottomDarkIcons = false;
+        } else if (LineSettings.materialYouTheme()) {
+            int mySurface = MaterialYou.blurSurfaceColor(view.getContext());
+            newTopRgb = mySurface;
+            newBottomRgb = mySurface;
+            newTopDarkIcons = prefersDarkIcons(newTopRgb);
+            newBottomDarkIcons = prefersDarkIcons(newBottomRgb);
+            newTopAlpha = newTopDarkIcons ? TOP_DAY_PERF : TOP_NIGHT_PERF;
+            newBottomAlpha = newBottomDarkIcons ? BOT_DAY_PERF : BOT_NIGHT_PERF;
         } else if (!BlurBars.chromeNight(view)) {
             newTopRgb = -1;
             newBottomRgb = -1;
@@ -62,6 +70,16 @@ final class ChromeStyle {
             newBottomRgb = -16777216;
             newTopDarkIcons = false;
             newBottomDarkIcons = false;
+        }
+        if (LineSettings.chatHeaderWhite()) {
+            newTopDarkIcons = false;
+            if (prefersDarkIcons(newTopRgb)) {
+                int r = (Color.red(newTopRgb) * 28) / 100;
+                int g = (Color.green(newTopRgb) * 28) / 100;
+                int b = (Color.blue(newTopRgb) * 28) / 100;
+                newTopRgb = Color.rgb(r, g, b);
+                newTopAlpha = zPowerSave ? TOP_SAVER : TOP_NIGHT_PERF;
+            }
         }
         boolean changed = newTopRgb != this.topRgb
             || newBottomRgb != this.bottomRgb

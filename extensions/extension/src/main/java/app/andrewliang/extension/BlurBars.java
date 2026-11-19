@@ -81,7 +81,7 @@ public final class BlurBars {
     private static final String[] CHAT_HEADER_LAYERS = {HEADER_SEAMLESS, HEADER_ARTWORK, "default_color_animation_layer"};
     private static final String[] INPUT_DARK_ICONS = {"chathistory_attach_button", "chat_ui_camera_button", "chat_ui_gallery_button"};
     private static final String[] INPUT_EMOJI_ICONS = {"chat_ui_esk_button", "chat_ui_text_keyboard_button"};
-    private static final String[] HEADER_TEXT = {"header_title", "header_title_count"};
+    private static final String[] HEADER_TEXT = {"header_title", "header_title_count", "header_oa_chat_status_bar"};
     private static final String[] HEADER_ICONS = {"header_up_button"};
     private static final Map<String, Integer> IDS = new HashMap();
     private static final Map<View, Boolean> HIDDEN = Collections.synchronizedMap(new WeakHashMap());
@@ -514,8 +514,8 @@ public final class BlurBars {
 
     public static void watch(Activity activity) {
         Window window;
-        if (enabled() && (window = activity.getWindow()) != null) {
-            if (Build.VERSION.SDK_INT >= 29) {
+        if ((enabled() || MaterialYou.anyEnabled()) && (window = activity.getWindow()) != null) {
+            if (enabled() && Build.VERSION.SDK_INT >= 29) {
                 window.setStatusBarContrastEnforced(false);
                 window.setNavigationBarContrastEnforced(false);
             }
@@ -572,72 +572,102 @@ public final class BlurBars {
     }
 
     static /* synthetic */ boolean lambda$watch$5(View view) {
-        if (!enabled()) {
-            return true;
+        boolean blurOn = enabled();
+        if (blurOn) {
+            keepHidden();
+            keepMirrored();
+            ChatScreen chatScreen = CHATS.get(view);
+            if (chatScreen != null) {
+                chatScreen.onPreDraw();
+            }
         }
-        keepHidden();
-        keepMirrored();
-        ChatScreen chatScreen = CHATS.get(view);
-        if (chatScreen != null) {
-            chatScreen.onPreDraw();
+        if (MaterialYou.anyEnabled()) {
+            MaterialYou.applyBottomNavBar(view);
+            if (!blurOn) {
+                View header = find(view, CHAT_HEADER);
+                if (header != null && header.isAttachedToWindow()) {
+                    MaterialYou.applyChatRoom(view, header, find(view, CHAT_LIST));
+                    if (LineSettings.chatHeaderWhite()) {
+                        tintHeader(header, null);
+                    }
+                }
+            }
         }
         return true;
     }
 
     private static void scan(View view) {
         String[] strArr;
-        if (enabled()) {
-            Context context = view.getContext();
-            int iId = id(context, CHAT_HEADER);
-            View viewFindViewById = iId == 0 ? null : view.findViewById(iId);
-            int[] iArr = new int[HIDE_VIEWS.length + 2];
-            int i = 0;
-            while (true) {
-                strArr = HIDE_VIEWS;
-                if (i >= strArr.length) {
-                    break;
+        if (MaterialYou.anyEnabled()) {
+            MaterialYou.applyBottomNavBar(view);
+        }
+        if (!enabled()) {
+            if (MaterialYou.anyEnabled()) {
+                View header = find(view, CHAT_HEADER);
+                if (header != null && header.isAttachedToWindow()) {
+                    MaterialYou.applyChatRoom(view, header, find(view, CHAT_LIST));
+                    if (LineSettings.chatHeaderWhite()) {
+                        tintHeader(header, null);
+                    }
                 }
-                iArr[i] = id(context, strArr[i]);
-                i++;
             }
-            int iId2 = id(context, STATUS_BAR);
-            int iId3 = id(context, NAVIGATION_BAR);
-            iArr[strArr.length] = iId2;
-            iArr[strArr.length + 1] = iId3;
-            ArrayList<View> arrayList = new ArrayList();
-            collect(view, iArr, id(context, CHAT_LIST), arrayList);
-            for (View view2 : arrayList) {
-                int id = view2.getId();
-                if (id == iId2) {
-                    statusBar(view2, viewFindViewById);
-                } else if (id == iId3) {
+            return;
+        }
+        Context context = view.getContext();
+        int iId = id(context, CHAT_HEADER);
+        View viewFindViewById = iId == 0 ? null : view.findViewById(iId);
+        int[] iArr = new int[HIDE_VIEWS.length + 2];
+        int i = 0;
+        while (true) {
+            strArr = HIDE_VIEWS;
+            if (i >= strArr.length) {
+                break;
+            }
+            iArr[i] = id(context, strArr[i]);
+            i++;
+        }
+        int iId2 = id(context, STATUS_BAR);
+        int iId3 = id(context, NAVIGATION_BAR);
+        iArr[strArr.length] = iId2;
+        iArr[strArr.length + 1] = iId3;
+        ArrayList<View> arrayList = new ArrayList();
+        collect(view, iArr, id(context, CHAT_LIST), arrayList);
+        for (View view2 : arrayList) {
+            int id = view2.getId();
+            if (id == iId2) {
+                statusBar(view2, viewFindViewById);
+            } else if (id == iId3) {
+                if (LineSettings.materialYouNavBar()) {
+                    MIRRORED.remove(view2);
+                    HIDDEN.remove(view2);
+                } else {
                     View viewFind = find(view, TABS_ARTWORK);
                     if (viewFind != null) {
                         mirror(view2, viewFind, false);
                     } else {
                         hide(view2);
                     }
-                } else {
-                    hide(view2);
                 }
+            } else {
+                hide(view2);
             }
-            if (viewFindViewById == null || !viewFindViewById.isAttachedToWindow()) {
-                CHATS.remove(view);
+        }
+        if (viewFindViewById == null || !viewFindViewById.isAttachedToWindow()) {
+            CHATS.remove(view);
+            return;
+        }
+        Map<View, ChatScreen> map = CHATS;
+        ChatScreen chatScreen = map.get(view);
+        if (chatScreen == null || chatScreen.header != viewFindViewById) {
+            View viewFind2 = find(view, CHAT_CONTENT);
+            if (viewFind2 == null) {
                 return;
             }
-            Map<View, ChatScreen> map = CHATS;
-            ChatScreen chatScreen = map.get(view);
-            if (chatScreen == null || chatScreen.header != viewFindViewById) {
-                View viewFind2 = find(view, CHAT_CONTENT);
-                if (viewFind2 == null) {
-                    return;
-                }
-                ChatScreen chatScreen2 = new ChatScreen(view, viewFindViewById, viewFind2, find(view, CHAT_SKIN), find(view, CHAT_REFRESH), find(view, CHAT_LIST), find(view, CHAT_INPUT), find(view, CHAT_SPACER));
-                map.put(view, chatScreen2);
-                chatScreen = chatScreen2;
-            }
-            chatScreen.update();
+            ChatScreen chatScreen2 = new ChatScreen(view, viewFindViewById, viewFind2, find(view, CHAT_SKIN), find(view, CHAT_REFRESH), find(view, CHAT_LIST), find(view, CHAT_INPUT), find(view, CHAT_SPACER));
+            map.put(view, chatScreen2);
+            chatScreen = chatScreen2;
         }
+        chatScreen.update();
     }
 
     private static void statusBar(View view, View view2) {
@@ -958,6 +988,7 @@ public final class BlurBars {
                 BlurBars.smoothInputPill(this.input, this.style);
                 BlurBars.tintInputIcons(this.input, this.style);
             }
+            MaterialYou.applyChatRoom(this.decor, this.header, this.list);
             BlurBars.tintHeader(this.header, this.style);
             ChatPanels.apply(this.decor, this.skin, this.refresh);
         }
@@ -1007,6 +1038,10 @@ public final class BlurBars {
             updateStyle();
             ensureBackgrounds();
             extendList();
+            MaterialYou.applyChatRoom(this.decor, this.header, this.list);
+            if (LineSettings.chatHeaderWhite()) {
+                BlurBars.tintHeader(this.header, this.style);
+            }
             if (!BlurBars.powerSave()) {
                 View view6 = this.skin;
                 boolean z = view6 != null && view6.isDirty();
@@ -1021,7 +1056,7 @@ public final class BlurBars {
         }
 
         private void lightIcons() {
-            boolean z = this.style.topDarkIcons;
+            boolean z = !LineSettings.chatHeaderWhite() && this.style.topDarkIcons;
             boolean z2 = this.style.bottomDarkIcons;
             int i = Build.VERSION.SDK_INT;
             View view = this.decor;
@@ -1288,7 +1323,11 @@ public final class BlurBars {
     }
 
     public static void tintHeader(View view, ChromeStyle chromeStyle) {
-        int i = chromeStyle.topDarkIcons ? -15658735 : HEADER_ICON_LIGHT;
+        boolean forceWhite = LineSettings.chatHeaderWhite();
+        int i = forceWhite ? 0xFFFFFFFF : ((chromeStyle != null && chromeStyle.topDarkIcons) ? -15658735 : HEADER_ICON_LIGHT);
+        float shadowRadius = forceWhite ? dp(view.getContext(), 2.0f) : 0.0f;
+        float shadowDy = forceWhite ? dp(view.getContext(), 1.0f) : 0.0f;
+        int shadowColor = forceWhite ? 0x55000000 : 0;
         for (String str : HEADER_TEXT) {
             View viewFind = find(view, str);
             if (viewFind instanceof TextView) {
@@ -1296,6 +1335,7 @@ public final class BlurBars {
                 if (textView.getCurrentTextColor() != i) {
                     textView.setTextColor(i);
                 }
+                textView.setShadowLayer(shadowRadius, 0.0f, shadowDy, shadowColor);
             }
         }
         for (String str2 : HEADER_ICONS) {

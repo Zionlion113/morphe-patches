@@ -274,6 +274,18 @@ final class LineSettingsScreen {
                         t("Tints the chat blur with the colors of the chat background image, at the top and at the bottom, and picks black or white icons to match. Chats with no background image keep the normal colors. Overrides Blur day/night.", "依聊天背景圖片上方與下方的顏色，為聊天室的模糊效果上色，並自動選用黑色或白色圖示。沒有背景圖片的聊天室維持一般配色。開啟時會取代「模糊日夜模式」。"),
                         false, null));
                 content.addView(dayNightChoice(activity));
+                content.addView(toggle(activity, LineSettings.CHAT_HEADER_WHITE,
+                        t("White chat header text & icons", "聊天室標題列使用白色文字與圖示"),
+                        t("Keeps the chat name and right-side header icons white so they stay easy to read on any background.", "將聊天室上方對方名字與右側圖示統一改為白色，確保在各種背景上都清晰易讀。"),
+                        true, null));
+                content.addView(toggle(activity, LineSettings.MATERIAL_YOU_THEME,
+                        t("Material You dynamic colors", "Material You 動態配色"),
+                        t("Applies your Android wallpaper palette across LINE, including all chat bubbles and settings accents. Tap the palette icon in any chat header to customize that chat's bubble colors.", "將系統桌布的 Material You 個人調色套用到 LINE，包含所有聊天氣泡與設定強調色。點擊聊天室標題列的調色盤圖示可單獨自訂該聊天室的氣泡顏色。"),
+                        true, null));
+                content.addView(toggle(activity, LineSettings.MATERIAL_YOU_NAV_BAR,
+                        t("Material You bottom navigation bar", "底部導覽列使用 Material You 配色"),
+                        t("Colors the main screen bottom tabs (Home, Chats, etc.) with Material You instead of black.", "主畫面底部的分頁列（主頁、聊天等）改用 Material You 配色取代原本的黑色。"),
+                        true, () -> restart.setVisibility(View.VISIBLE)));
                 content.addView(restart);
             }
             if (LineSettings.predictiveBackIncluded()) {
@@ -464,7 +476,11 @@ final class LineSettingsScreen {
         section.setPaddingRelative(horizontal, dimen(activity, "line_user_settings_item_header_small_padding_top"),
                 horizontal, dimen(activity, "line_user_settings_item_header_padding_bottom"));
         section.setText(title);
-        look.paint(section, look.sectionOrSecondary());
+        if (LineSettings.materialYouTheme()) {
+            section.setTextColor(MaterialYou.accentColor(activity));
+        } else {
+            look.paint(section, look.sectionOrSecondary());
+        }
         return section;
     }
 

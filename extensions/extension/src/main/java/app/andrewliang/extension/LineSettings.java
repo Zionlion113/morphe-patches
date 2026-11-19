@@ -58,6 +58,11 @@ public final class LineSettings {
     static final String BLUR_BOTTOM_DARK_TINT = "blur_bottom_dark_tint";
     static final String BLUR_AUTO_COLOR = "blur_auto_color";
     static final String BLUR_DAY_NIGHT = "blur_day_night";
+    static final String CHAT_HEADER_WHITE = "chat_header_white";
+    static final String MATERIAL_YOU_THEME = "material_you_theme";
+    static final String MATERIAL_YOU_NAV_BAR = "material_you_nav_bar";
+    static final String CHAT_BUBBLE_SEND_PREFIX = "chat_bubble_send_";
+    static final String CHAT_BUBBLE_RECV_PREFIX = "chat_bubble_recv_";
     static final String CHAT_HAPTICS = "chat_haptics";
     static final String PREDICTIVE_BACK = "predictive_back";
     static final String SCROLL_REFRESH_RATE = "scroll_refresh_rate";
@@ -186,6 +191,38 @@ public final class LineSettings {
     public static int blurDayNight() {
         int value = number(BLUR_DAY_NIGHT, 0);
         return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    public static boolean chatHeaderWhite() {
+        return isOn(CHAT_HEADER_WHITE, true);
+    }
+
+    public static boolean materialYouTheme() {
+        return isOn(MATERIAL_YOU_THEME, true);
+    }
+
+    public static boolean materialYouNavBar() {
+        return isOn(MATERIAL_YOU_NAV_BAR, true);
+    }
+
+    public static int chatBubbleSendColor(String chatId) {
+        if (chatId == null || chatId.isEmpty()) return 0;
+        return number(CHAT_BUBBLE_SEND_PREFIX + chatId, 0);
+    }
+
+    public static int chatBubbleReceiveColor(String chatId) {
+        if (chatId == null || chatId.isEmpty()) return 0;
+        return number(CHAT_BUBBLE_RECV_PREFIX + chatId, 0);
+    }
+
+    public static void setChatBubbleColors(String chatId, int sendColor, int receiveColor) {
+        if (chatId == null || chatId.isEmpty()) return;
+        setNumber(CHAT_BUBBLE_SEND_PREFIX + chatId, sendColor);
+        setNumber(CHAT_BUBBLE_RECV_PREFIX + chatId, receiveColor);
+    }
+
+    public static void clearChatBubbleColors(String chatId) {
+        setChatBubbleColors(chatId, 0, 0);
     }
 
     public static boolean predictiveBack() {
