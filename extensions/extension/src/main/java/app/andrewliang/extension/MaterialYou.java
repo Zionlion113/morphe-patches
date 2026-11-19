@@ -71,6 +71,8 @@ final class MaterialYou {
     private static final String[] BUBBLE_CONTAINER_IDS = {
             "chat_ui_text_message_balloon_root",
             "chat_ui_row_message",
+            "chathistory_row_message",
+            "chat_ui_row_timeline_message",
             "chat_ui_bubble_root",
             "chat_ui_row_gift_message_bubble",
     };
@@ -84,12 +86,55 @@ final class MaterialYou {
             "chat_ui_row_file_title",
             "chat_ui_unavailable_message",
             "chat_ui_content_text",
+            "chat_ui_row_voice_play_time",
+            "chathistory_row_contact_message",
+            "chat_ui_row_contact_message",
+            "chat_ui_row_location_message_name",
+            "chat_ui_label_text",
+            "chat_ui_link_message",
+            "chat_ui_link_linktext",
+            "chat_ui_row_group_call_text_horizontal",
+            "chat_ui_title_text",
+            "chat_ui_service_name",
+            "chat_ui_row_e2ee_undecrypted_title",
+            "chat_ui_row_timeline_album_title",
+            "chat_ui_row_timeline_message_text",
+            "chat_ui_row_timeline_message_location_name_text",
+            "chat_ui_groupboard_tv",
     };
 
     private static final String[] BUBBLE_SUBTEXT_IDS = {
             "chat_ui_row_file_duration",
             "chat_ui_row_file_size",
             "chat_ui_sender_name",
+            "chat_ui_row_location_message_address",
+            "chat_ui_link_subtext",
+            "chat_ui_sub_text",
+            "chat_ui_type_text",
+            "chat_ui_type_sub_text",
+            "chat_ui_row_e2ee_undecrypted_content",
+            "chat_ui_row_timeline_message_album_status_text",
+            "chat_ui_row_timeline_message_location_address_text",
+            "bottom_service_name",
+    };
+
+    private static final String[] BUBBLE_DIVIDER_IDS = {
+            "chat_ui_divider",
+            "chat_ui_border",
+            "chat_ui_bottom_divider",
+            "bottom_divider",
+            "chat_ui_service_name_line_divider",
+    };
+
+    private static final String[] BUBBLE_VOICE_ICON_IDS = {
+            "chat_ui_row_voice_play_icon",
+            "chat_ui_row_voice_pause_icon",
+            "chat_ui_row_voice_play_progress",
+    };
+
+    private static final String[] BUBBLE_ACCENT_CIRCLE_IDS = {
+            "chat_ui_row_groupcall_icon_horizontal",
+            "chat_ui_row_timeline_message_location_icon_background",
     };
 
     private static final int[] PRESET_COLORS = {
