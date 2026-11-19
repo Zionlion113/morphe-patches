@@ -1,3 +1,9 @@
+## [3.13.0-dev.21](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.20...v3.13.0-dev.21) (2026-11-19)
+
+### ✨ New Features
+
+* **LINE:** add cross-window blur across LINE dialogs and popups, and Pixel haptics for swipe-reply, switches, and tabs ([#2](https://github.com/Zionlion113/morphe-patches/issues/2)) ([7073370](https://github.com/Zionlion113/morphe-patches/commit/7073370772de1be7ef93d5389fafaf7a26fcb286))
+
 ## [3.13.0-dev.20](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.19...v3.13.0-dev.20) (2026-11-19)
 
 ### 🐛 Bug Fixes

@@ -1,6 +1,6 @@
 {
   "NOTE": "Do NOT manually edit this file. This file is automatically updated when semantic release (release.yml) runs. Manually editing this file can break your releases and break third party tools that use this file.",
-  "version": "3.13.0-dev.20",
+  "version": "3.13.0-dev.21",
   "patches": [
     {
       "name": "[Ad] Block ad telemetry",
@@ -284,7 +284,7 @@
     },
     {
       "name": "[Chat] Haptic feedback",
-      "description": "Adds a short vibration when you long-press a message, send a message, or unsend one. It follows the system touch feedback setting.",
+      "description": "Adds tactile feedback when you long-press a message, swipe to reply, send, unsend, flip a switch, or switch bottom tabs. It follows the system touch feedback setting.",
       "default": true,
       "dependencies": [
         "BytecodePatch"
