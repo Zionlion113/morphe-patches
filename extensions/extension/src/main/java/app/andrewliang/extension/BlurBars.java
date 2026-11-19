@@ -1299,9 +1299,9 @@ public final class BlurBars {
             this.darkIcons = darkIcons;
             this.fillPaint.setStyle(Paint.Style.FILL);
             this.rimPaint.setStyle(Paint.Style.STROKE);
-            this.rimPaint.setStrokeWidth(Math.max(1.0f, density * 1.15f));
+            this.rimPaint.setStrokeWidth(Math.max(1.5f, density * 1.25f));
             this.outerPaint.setStyle(Paint.Style.STROKE);
-            this.outerPaint.setStrokeWidth(Math.max(1.0f, density * 0.65f));
+            this.outerPaint.setStrokeWidth(Math.max(1.0f, density * 0.8f));
         }
 
         void setDarkIcons(boolean darkIcons) {
@@ -1326,40 +1326,48 @@ public final class BlurBars {
             float right = bounds.right;
             float bottom = bounds.bottom;
             this.fillRect.set(left, top, right, bottom);
-            float rimInset = this.rimPaint.getStrokeWidth() * 0.5f;
-            this.rimRect.set(left + rimInset, top + rimInset, right - rimInset, bottom - rimInset);
-            float outerInset = this.outerPaint.getStrokeWidth() * 0.5f;
+            float outerStroke = this.outerPaint.getStrokeWidth();
+            float outerInset = outerStroke * 0.5f + 0.5f;
             this.outerRect.set(left + outerInset, top + outerInset, right - outerInset, bottom - outerInset);
+            float rimStroke = this.rimPaint.getStrokeWidth();
+            float rimInset = (this.darkIcons ? outerStroke : 0.0f) + rimStroke * 0.5f + 0.5f;
+            this.rimRect.set(left + rimInset, top + rimInset, right - rimInset, bottom - rimInset);
             if (this.darkIcons) {
-                // Light/default chat background: translucent frosted glass + bright specular rim + hairline edge lift
+                // Light/default chat background: translucent frosted glass + bright top white bevel + dim bottom shadow
                 this.fillPaint.setShader(new LinearGradient(
                     left, top, left, bottom,
-                    new int[]{0x7AFFFFFF, 0x52FFFFFF},
+                    new int[]{0x80FFFFFF, 0x55FFFFFF},
+                    null,
+                    Shader.TileMode.CLAMP
+                ));
+                this.outerPaint.setShader(new LinearGradient(
+                    left, top, left, bottom,
+                    new int[]{0x14000000, 0x26000000},
                     null,
                     Shader.TileMode.CLAMP
                 ));
                 this.rimPaint.setShader(new LinearGradient(
-                    left, top, right, bottom,
-                    new int[]{0xE6FFFFFF, 0x55FFFFFF, 0x26FFFFFF, 0xB8FFFFFF},
-                    new float[]{0.0f, 0.35f, 0.65f, 1.0f},
+                    left, top, left, bottom,
+                    new int[]{0xF2FFFFFF, 0x70FFFFFF, 0x14FFFFFF},
+                    new float[]{0.0f, 0.42f, 1.0f},
                     Shader.TileMode.CLAMP
                 ));
-                this.outerPaint.setColor(0x1A000000);
             } else {
-                // Dark/photo chat background: smoky translucent glass + diagonal specular rim glow
+                // Dark/photo chat background: smoky translucent glass + Antigravity-style vertical top-bright to bottom-dim white rim
                 this.fillPaint.setShader(new LinearGradient(
                     left, top, left, bottom,
-                    new int[]{0x36FFFFFF, 0x1EFFFFFF},
+                    new int[]{0x30FFFFFF, 0x1AFFFFFF},
                     null,
                     Shader.TileMode.CLAMP
                 ));
+                this.outerPaint.setShader(null);
+                this.outerPaint.setColor(0x00000000);
                 this.rimPaint.setShader(new LinearGradient(
-                    left, top, right, bottom,
-                    new int[]{0xB8FFFFFF, 0x2AFFFFFF, 0x18FFFFFF, 0x6EFFFFFF},
-                    new float[]{0.0f, 0.32f, 0.68f, 1.0f},
+                    left, top, left, bottom,
+                    new int[]{0xB3FFFFFF, 0x45FFFFFF, 0x18FFFFFF},
+                    new float[]{0.0f, 0.38f, 1.0f},
                     Shader.TileMode.CLAMP
                 ));
-                this.outerPaint.setColor(0x00000000);
             }
         }
 
@@ -1373,10 +1381,10 @@ public final class BlurBars {
             float radius = Math.min(bounds.width(), bounds.height()) * 0.5f;
             canvas.drawRoundRect(this.fillRect, radius, radius, this.fillPaint);
             if (this.darkIcons) {
-                float outerRadius = Math.max(0.0f, radius - this.outerPaint.getStrokeWidth() * 0.5f);
+                float outerRadius = Math.max(0.0f, Math.min(this.outerRect.width(), this.outerRect.height()) * 0.5f);
                 canvas.drawRoundRect(this.outerRect, outerRadius, outerRadius, this.outerPaint);
             }
-            float rimRadius = Math.max(0.0f, radius - this.rimPaint.getStrokeWidth() * 0.5f);
+            float rimRadius = Math.max(0.0f, Math.min(this.rimRect.width(), this.rimRect.height()) * 0.5f);
             canvas.drawRoundRect(this.rimRect, rimRadius, rimRadius, this.rimPaint);
         }
 
