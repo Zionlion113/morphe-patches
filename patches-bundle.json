@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-19T07:04:11",
-  "description": "## [3.13.0-dev.13](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.12...v3.13.0-dev.13) (2026-11-19)\n\n### ✨ New Features\n\n* **LINE:** move bubble color to chat settings, fix nav bar height, tint unread badges, soften glass rim, and add Pixel/Android native APIs ([21eb60f](https://github.com/Zionlion113/morphe-patches/commit/21eb60f3c5cef5a672d7cdec1cb64dc99e2ee2a2))",
-  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.13/patches-3.13.0-dev.13.mpp",
+  "created_at": "2026-11-19T07:35:40",
+  "description": "## [3.13.0-dev.14](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.13...v3.13.0-dev.14) (2026-11-19)\n\n### 🐛 Bug Fixes\n\n* **LINE:** tint all chat list unread badges and Compose header/folder pills with Material You, and make input pill more opaque ([d47a371](https://github.com/Zionlion113/morphe-patches/commit/d47a371c3ad66875a95f90df57089c187dbd6ded))",
+  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.14/patches-3.13.0-dev.14.mpp",
   "signature_download_url": "",
-  "version": "3.13.0-dev.13"
+  "version": "3.13.0-dev.14"
 }

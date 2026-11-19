@@ -1,3 +1,9 @@
+## [3.13.0-dev.14](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.13...v3.13.0-dev.14) (2026-11-19)
+
+### 🐛 Bug Fixes
+
+* **LINE:** tint all chat list unread badges and Compose header/folder pills with Material You, and make input pill more opaque ([d47a371](https://github.com/Zionlion113/morphe-patches/commit/d47a371c3ad66875a95f90df57089c187dbd6ded))
+
 ## [3.13.0-dev.13](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.12...v3.13.0-dev.13) (2026-11-19)
 
 ### ✨ New Features
