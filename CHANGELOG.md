@@ -1,3 +1,9 @@
+## [3.13.0-dev.13](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.12...v3.13.0-dev.13) (2026-11-19)
+
+### ✨ New Features
+
+* **LINE:** move bubble color to chat settings, fix nav bar height, tint unread badges, soften glass rim, and add Pixel/Android native APIs ([21eb60f](https://github.com/Zionlion113/morphe-patches/commit/21eb60f3c5cef5a672d7cdec1cb64dc99e2ee2a2))
+
 ## [3.13.0-dev.12](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.11...v3.13.0-dev.12) (2026-11-19)
 
 ### ✨ New Features

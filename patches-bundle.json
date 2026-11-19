@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-19T06:38:16",
-  "description": "## [3.13.0-dev.12](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.11...v3.13.0-dev.12) (2026-11-19)\n\n### ✨ New Features\n\n* **LINE:** add Material You dynamic theming, white chat header, and per-chat bubble colors ([b49b4e5](https://github.com/Zionlion113/morphe-patches/commit/b49b4e520eb9ca01b1efee9b67934e434a206811))",
-  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.12/patches-3.13.0-dev.12.mpp",
+  "created_at": "2026-11-19T07:04:11",
+  "description": "## [3.13.0-dev.13](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.12...v3.13.0-dev.13) (2026-11-19)\n\n### ✨ New Features\n\n* **LINE:** move bubble color to chat settings, fix nav bar height, tint unread badges, soften glass rim, and add Pixel/Android native APIs ([21eb60f](https://github.com/Zionlion113/morphe-patches/commit/21eb60f3c5cef5a672d7cdec1cb64dc99e2ee2a2))",
+  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.13/patches-3.13.0-dev.13.mpp",
   "signature_download_url": "",
-  "version": "3.13.0-dev.12"
+  "version": "3.13.0-dev.13"
 }
