@@ -16,6 +16,7 @@ import app.morphe.patcher.util.smali.ExternalLabel
 import com.android.tools.smali.dexlib2.AccessFlags
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.builder.MutableMethodImplementation
+import com.android.tools.smali.dexlib2.iface.Method
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.Instruction
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
@@ -27,6 +28,8 @@ import com.android.tools.smali.dexlib2.immutable.ImmutableMethod
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethodParameter
 
 private const val EXTENSION = "Lapp/andrewliang/extension/BlurBars;"
+private const val PIXEL_EXT = "Lapp/andrewliang/extension/PixelNativeEnhancements;"
+private const val EXTENSION_PREFIX = "Lapp/andrewliang/extension/"
 
 @Suppress("unused")
 val blurSystemBarsPatch = bytecodePatch(
@@ -348,7 +351,114 @@ val blurSystemBarsPatch = bytecodePatch(
             }
         }
 
+        val windowOwners = mutableSetOf<String>()
+        classDefForEach { classDef ->
+            if (classDef.type.startsWith(EXTENSION_PREFIX)) return@classDefForEach
+            if (classDef.methods.any { it.callsModalShow() }) {
+                windowOwners += classDef.type
+            }
+        }
+        windowOwners.forEach { type ->
+            mutableClassDefByOrNull(type)?.methods?.forEach { method ->
+                method.rerouteModalShow { candidate -> isKnownDialogType(candidate) }
+            }
+        }
+
         markLineSettingIncluded("blurSystemBars")
+    }
+}
+
+private val KNOWN_DIALOG_SUPERCLASSES = setOf(
+    "Landroid/app/Dialog;",
+    "Landroid/app/AlertDialog;",
+    "Landroidx/appcompat/app/AppCompatDialog;",
+    "Landroidx/appcompat/app/AlertDialog;",
+    "Landroidx/activity/ComponentDialog;",
+    "Lcom/google/android/material/bottomsheet/BottomSheetDialog;",
+)
+
+private fun app.morphe.patcher.patch.BytecodePatchContext.isKnownDialogType(type: String): Boolean {
+    if (type in KNOWN_DIALOG_SUPERCLASSES) return true
+    var current: String? = type
+    var depth = 0
+    while (current != null && depth < 8) {
+        if (current in KNOWN_DIALOG_SUPERCLASSES) return true
+        if (current == "Ljava/lang/Object;" || current.endsWith("DialogFragment;")) return false
+        current = classDefByOrNull(current)?.superclass
+        depth++
+    }
+    return false
+}
+
+private fun Instruction.modalShowTarget(): String? {
+    if (opcode != Opcode.INVOKE_VIRTUAL && opcode != Opcode.INVOKE_VIRTUAL_RANGE) return null
+    val ref = methodRef() ?: return null
+    if (ref.returnType != "V") return null
+    val params = ref.parameterTypes.joinToString("")
+    return when {
+        ref.name == "show" && params.isEmpty() && !ref.definingClass.endsWith("DialogFragment;") && (
+            ref.definingClass in KNOWN_DIALOG_SUPERCLASSES || ref.definingClass.endsWith("Dialog;")
+            ) ->
+            "$PIXEL_EXT->showBlurredDialog(Landroid/app/Dialog;)V"
+
+        ref.definingClass == "Landroid/widget/PopupWindow;" &&
+            ref.name == "showAtLocation" &&
+            params == "Landroid/view/View;III" ->
+            "$PIXEL_EXT->showPopupAtLocation(Landroid/widget/PopupWindow;Landroid/view/View;III)V"
+
+        ref.definingClass == "Landroid/widget/PopupWindow;" &&
+            ref.name == "showAsDropDown" &&
+            params == "Landroid/view/View;" ->
+            "$PIXEL_EXT->showPopupAsDropDown(Landroid/widget/PopupWindow;Landroid/view/View;)V"
+
+        ref.definingClass == "Landroid/widget/PopupWindow;" &&
+            ref.name == "showAsDropDown" &&
+            params == "Landroid/view/View;II" ->
+            "$PIXEL_EXT->showPopupAsDropDown(Landroid/widget/PopupWindow;Landroid/view/View;II)V"
+
+        ref.definingClass == "Landroid/widget/PopupWindow;" &&
+            ref.name == "showAsDropDown" &&
+            params == "Landroid/view/View;III" ->
+            "$PIXEL_EXT->showPopupAsDropDown(Landroid/widget/PopupWindow;Landroid/view/View;III)V"
+
+        else -> null
+    }
+}
+
+private fun Method.callsModalShow(): Boolean =
+    implementation?.instructions?.any { it.modalShowTarget() != null } == true
+
+private fun MutableMethod.rerouteModalShow(isDialogType: (String) -> Boolean) {
+    val sites = (implementation ?: return).instructions.withIndex()
+        .mapNotNull { (index, instruction) ->
+            val target = instruction.modalShowTarget() ?: return@mapNotNull null
+            Triple(index, instruction, target)
+        }
+    sites.asReversed().forEach { (index, instruction, target) ->
+        if (target.endsWith("showBlurredDialog(Landroid/app/Dialog;)V")) {
+            val defining = instruction.methodRef()!!.definingClass
+            if (!isDialogType(defining)) {
+                return@forEach
+            }
+        }
+        val replacement = when (instruction) {
+            is RegisterRangeInstruction -> {
+                val endReg = instruction.startRegister + instruction.registerCount - 1
+                "invoke-static/range { v${instruction.startRegister} .. v$endReg }, $target"
+            }
+            is FiveRegisterInstruction -> {
+                val regs = buildList {
+                    if (instruction.registerCount >= 1) add("v${instruction.registerC}")
+                    if (instruction.registerCount >= 2) add("v${instruction.registerD}")
+                    if (instruction.registerCount >= 3) add("v${instruction.registerE}")
+                    if (instruction.registerCount >= 4) add("v${instruction.registerF}")
+                    if (instruction.registerCount >= 5) add("v${instruction.registerG}")
+                }.joinToString(", ")
+                "invoke-static { $regs }, $target"
+            }
+            else -> return@forEach
+        }
+        replaceInstruction(index, replacement)
     }
 }
 

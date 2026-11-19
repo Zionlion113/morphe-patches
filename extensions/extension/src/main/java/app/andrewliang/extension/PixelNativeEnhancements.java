@@ -13,6 +13,7 @@ import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.PointerIcon;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowManager;
@@ -333,8 +334,83 @@ final class PixelNativeEnhancements {
     }
 
     /**
-     * Enables real-time GPU cross-window blur behind dialogs on Android 12+ (API 31+) when supported.
+     * Enables real-time GPU cross-window blur behind modal dialogs on Android 12+ (API 31+) when
+     * supported. Full-screen dialogs (such as photo viewers or the full-screen patch settings page)
+     * have opaque backgrounds and skip cross-window blur.
      */
+    public static void showBlurredDialog(Dialog dialog) {
+        if (dialog == null) {
+            return;
+        }
+        applyDialogBlur(dialog);
+        dialog.show();
+    }
+
+    /** Calls {@link android.widget.PopupWindow#showAtLocation} after enabling cross-window blur behind the popup. */
+    public static void showPopupAtLocation(android.widget.PopupWindow popup, View parent, int gravity, int x, int y) {
+        if (popup == null) {
+            return;
+        }
+        popup.showAtLocation(parent, gravity, x, y);
+        applyPopupBlur(popup, parent);
+    }
+
+    /** Calls {@link android.widget.PopupWindow#showAsDropDown(View)} after enabling cross-window blur behind the popup. */
+    public static void showPopupAsDropDown(android.widget.PopupWindow popup, View anchor) {
+        if (popup == null) {
+            return;
+        }
+        popup.showAsDropDown(anchor);
+        applyPopupBlur(popup, anchor);
+    }
+
+    /** Calls {@link android.widget.PopupWindow#showAsDropDown(View, int, int)} after enabling cross-window blur behind the popup. */
+    public static void showPopupAsDropDown(android.widget.PopupWindow popup, View anchor, int xoff, int yoff) {
+        if (popup == null) {
+            return;
+        }
+        popup.showAsDropDown(anchor, xoff, yoff);
+        applyPopupBlur(popup, anchor);
+    }
+
+    /** Calls {@link android.widget.PopupWindow#showAsDropDown(View, int, int, int)} after enabling cross-window blur behind the popup. */
+    public static void showPopupAsDropDown(android.widget.PopupWindow popup, View anchor, int xoff, int yoff, int gravity) {
+        if (popup == null) {
+            return;
+        }
+        popup.showAsDropDown(anchor, xoff, yoff, gravity);
+        applyPopupBlur(popup, anchor);
+    }
+
+    private static void applyPopupBlur(android.widget.PopupWindow popup, View anchor) {
+        if (popup == null || anchor == null || Build.VERSION.SDK_INT < 31 || !LineSettings.pixelWindowBlur() || PowerSave.shouldDegradeEffects()) {
+            return;
+        }
+        try {
+            Context ctx = anchor.getContext();
+            WindowManager wm = (WindowManager) ctx.getSystemService(Context.WINDOW_SERVICE);
+            if (wm == null || !wm.isCrossWindowBlurEnabled()) {
+                return;
+            }
+            View contentView = popup.getContentView();
+            if (contentView == null) {
+                return;
+            }
+            View rootView = contentView.getRootView();
+            if (rootView == null) {
+                return;
+            }
+            ViewGroup.LayoutParams rawLp = rootView.getLayoutParams();
+            if (rawLp instanceof WindowManager.LayoutParams) {
+                WindowManager.LayoutParams lp = (WindowManager.LayoutParams) rawLp;
+                lp.flags |= WindowManager.LayoutParams.FLAG_BLUR_BEHIND;
+                lp.setBlurBehindRadius(BlurBars.dp(ctx, 20.0f));
+                wm.updateViewLayout(rootView, lp);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     static void applyDialogBlur(Dialog dialog) {
         if (dialog == null || Build.VERSION.SDK_INT < 31 || !LineSettings.pixelWindowBlur() || PowerSave.shouldDegradeEffects()) {
             return;
@@ -344,17 +420,27 @@ final class PixelNativeEnhancements {
             return;
         }
         try {
-            WindowManager wm = (WindowManager) dialog.getContext().getSystemService(Context.WINDOW_SERVICE);
+            WindowManager.LayoutParams lp = window.getAttributes();
+            if (lp != null
+                    && lp.width == ViewGroup.LayoutParams.MATCH_PARENT
+                    && lp.height == ViewGroup.LayoutParams.MATCH_PARENT
+                    && (lp.flags & WindowManager.LayoutParams.FLAG_DIM_BEHIND) == 0) {
+                return;
+            }
+            Context ctx = dialog.getContext();
+            WindowManager wm = (WindowManager) ctx.getSystemService(Context.WINDOW_SERVICE);
             if (wm == null || !wm.isCrossWindowBlurEnabled()) {
                 return;
             }
             window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND);
-            WindowManager.LayoutParams lp = window.getAttributes();
+            lp = window.getAttributes();
             if (lp != null) {
-                lp.setBlurBehindRadius(BlurBars.dp(dialog.getContext(), 20.0f));
+                if ((lp.flags & WindowManager.LayoutParams.FLAG_DIM_BEHIND) != 0 && lp.dimAmount > 0.35f) {
+                    lp.dimAmount = 0.28f;
+                }
+                lp.setBlurBehindRadius(BlurBars.dp(ctx, 22.0f));
                 window.setAttributes(lp);
             }
-            window.setBackgroundBlurRadius(BlurBars.dp(dialog.getContext(), 16.0f));
         } catch (Throwable ignored) {
         }
     }
