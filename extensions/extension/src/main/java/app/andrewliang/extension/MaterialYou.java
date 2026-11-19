@@ -641,6 +641,11 @@ final class MaterialYou {
         return Palette.of(context).blurSurface;
     }
 
+    static int sendButtonAccentColor(Context context, boolean bottomDarkIcons) {
+        Palette p = Palette.forMode(context, !bottomDarkIcons);
+        return bottomDarkIcons ? p.pillBg : p.accent;
+    }
+
     // =========================================================================
     // Jetpack Compose Unread Badge & Header / SubTab Pill Color Hooks
     // =========================================================================
@@ -1226,9 +1231,39 @@ final class MaterialYou {
                 }
             }
         }
-        View divider = BlurBars.find(container, "chat_ui_divider");
-        if (divider != null && divider.getVisibility() == View.VISIBLE) {
-            divider.setBackgroundColor(dividerColor);
+        for (String divId : BUBBLE_DIVIDER_IDS) {
+            View divider = BlurBars.find(container, divId);
+            if (divider != null && divider.getVisibility() == View.VISIBLE) {
+                divider.setBackgroundColor(dividerColor);
+            }
+        }
+        boolean materialYouOn = LineSettings.materialYouTheme();
+        int voiceIconTint = (materialYouOn && textColor == 0xFF1A1C1E)
+                ? Palette.forMode(container.getContext(), false).pillBg
+                : textColor;
+        for (String voiceIconId : BUBBLE_VOICE_ICON_IDS) {
+            View v = BlurBars.find(container, voiceIconId);
+            if (v instanceof ImageView) {
+                ImageView iv = (ImageView) v;
+                ColorStateList cur = iv.getImageTintList();
+                if (cur == null || cur.getDefaultColor() != voiceIconTint) {
+                    iv.setImageTintMode(PorterDuff.Mode.SRC_IN);
+                    iv.setImageTintList(ColorStateList.valueOf(voiceIconTint));
+                }
+            }
+        }
+        if (materialYouOn) {
+            int circleAccent = Palette.of(container.getContext()).badgeBg;
+            for (String circleId : BUBBLE_ACCENT_CIRCLE_IDS) {
+                View circle = BlurBars.find(container, circleId);
+                if (circle != null && circle.getVisibility() == View.VISIBLE && circle.getBackground() != null) {
+                    ColorStateList cur = circle.getBackgroundTintList();
+                    if (cur == null || cur.getDefaultColor() != circleAccent) {
+                        circle.setBackgroundTintMode(PorterDuff.Mode.SRC_IN);
+                        circle.setBackgroundTintList(ColorStateList.valueOf(circleAccent));
+                    }
+                }
+            }
         }
     }
 

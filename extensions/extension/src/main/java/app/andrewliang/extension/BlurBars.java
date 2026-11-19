@@ -1117,6 +1117,7 @@ public final class BlurBars {
             extendList();
             MaterialYou.applyChatRoom(this.decor, this.header, this.list, this.skin);
             PixelNativeEnhancements.applyFoldableChatLayout(this.decor, this.list, this.input);
+            BlurBars.updateSendButtonTint(this.input, this.style);
             if (LineSettings.chatHeaderWhite()) {
                 BlurBars.tintHeader(this.header, this.style);
             }
@@ -1357,14 +1358,26 @@ public final class BlurBars {
         for (String str2 : INPUT_EMOJI_ICONS) {
             tintImage(find(view, str2), i2);
         }
-        tintMic(find(view, INPUT_MIC), i);
+        tintMic(view, find(view, INPUT_MIC), i, z);
     }
 
-    private static void tintMic(View view, int i) {
+    static void updateSendButtonTint(View input, ChromeStyle chromeStyle) {
+        if (input == null || chromeStyle == null) {
+            return;
+        }
+        boolean darkIcons = chromeStyle.bottomDarkIcons;
+        int iconTint = darkIcons ? -15658735 : -1;
+        tintMic(input, find(input, INPUT_MIC), iconTint, darkIcons);
+    }
+
+    private static void tintMic(View inputRoot, View view, int i, boolean bottomDarkIcons) {
         if (view instanceof ImageView) {
             ImageView imageView = (ImageView) view;
             Drawable drawable = imageView.getDrawable();
-            if (drawable == null || hasGreenCircle(drawable)) {
+            if (drawable == null) {
+                return;
+            }
+            if (hasGreenCircle(drawable)) {
                 if (imageView.getImageTintList() != null) {
                     imageView.setImageTintList(null);
                 }
@@ -1372,9 +1385,50 @@ public final class BlurBars {
                     imageView.clearColorFilter();
                 }
                 TINTED.remove(imageView);
+                if (LineSettings.materialYouTheme()) {
+                    int accent = MaterialYou.sendButtonAccentColor(imageView.getContext(), bottomDarkIcons);
+                    recolorGreenCircle(drawable, accent);
+                }
                 return;
             }
-            tintImage(imageView, i);
+            int targetTint = i;
+            if (LineSettings.materialYouTheme() && hasTypedInputText(inputRoot)) {
+                targetTint = MaterialYou.sendButtonAccentColor(imageView.getContext(), bottomDarkIcons);
+            }
+            tintImage(imageView, targetTint);
+        }
+    }
+
+    private static boolean hasTypedInputText(View inputRoot) {
+        if (inputRoot == null) {
+            return false;
+        }
+        View edit = find(inputRoot, INPUT_EDIT);
+        if (edit instanceof TextView) {
+            CharSequence text = ((TextView) edit).getText();
+            return text != null && text.length() > 0;
+        }
+        return false;
+    }
+
+    private static void recolorGreenCircle(Drawable drawable, int accentColor) {
+        if (drawable instanceof LayerDrawable) {
+            LayerDrawable layerDrawable = (LayerDrawable) drawable;
+            for (int i = 0; i < layerDrawable.getNumberOfLayers(); i++) {
+                recolorGreenCircle(layerDrawable.getDrawable(i), accentColor);
+            }
+            return;
+        }
+        if (drawable instanceof ColorDrawable) {
+            ColorDrawable cd = (ColorDrawable) drawable;
+            int color = cd.getColor();
+            int r = Color.red(color);
+            int g = Color.green(color);
+            int b = Color.blue(color);
+            if (g > r + 20 && g > b + 20 && g > 80) {
+                cd.mutate();
+                cd.setColor(accentColor | 0xFF000000);
+            }
         }
     }
 
