@@ -575,17 +575,19 @@ public final class BlurBars {
 
     static /* synthetic */ boolean lambda$watch$5(View view) {
         boolean blurOn = enabled();
+        ChatScreen chatScreen = blurOn ? CHATS.get(view) : null;
         if (blurOn) {
             keepHidden();
             keepMirrored();
-            ChatScreen chatScreen = CHATS.get(view);
             if (chatScreen != null) {
                 chatScreen.onPreDraw();
             }
         }
         if (MaterialYou.anyEnabled()) {
-            MaterialYou.applyBottomNavBar(view);
-            MaterialYou.applyChatListBadges(view);
+            if (chatScreen == null) {
+                MaterialYou.applyBottomNavBar(view);
+                MaterialYou.applyChatListBadges(view);
+            }
             if (!blurOn) {
                 View header = find(view, CHAT_HEADER);
                 if (header != null && header.isAttachedToWindow()) {
@@ -597,6 +599,8 @@ public final class BlurBars {
                     }
                 }
             }
+        } else {
+            MaterialYou.clearComposeTintIfNeeded();
         }
         return true;
     }
@@ -1344,7 +1348,9 @@ public final class BlurBars {
                 if (textView.getCurrentTextColor() != i) {
                     textView.setTextColor(i);
                 }
-                textView.setShadowLayer(shadowRadius, 0.0f, shadowDy, shadowColor);
+                if (textView.getShadowRadius() != shadowRadius || textView.getShadowColor() != shadowColor) {
+                    textView.setShadowLayer(shadowRadius, 0.0f, shadowDy, shadowColor);
+                }
             }
         }
         for (String str2 : HEADER_ICONS) {

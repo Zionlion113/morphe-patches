@@ -91,6 +91,7 @@ final class MaterialYou {
     private static final Map<View, Integer> BUBBLE_APPLIED = new WeakHashMap<>();
     private static final Map<View, Integer> NAV_APPLIED = new WeakHashMap<>();
     private static final Map<View, Integer> BADGE_APPLIED = new WeakHashMap<>();
+    private static final Map<View, Boolean> COMPOSE_TINTED = new WeakHashMap<>();
     private static final Map<View, String> CHAT_IDS = new WeakHashMap<>();
 
     private static volatile String lastActiveChatId = "";
@@ -140,11 +141,21 @@ final class MaterialYou {
             this.blurSurface = blurSurface;
         }
 
+        private static volatile Palette cached;
+        private static volatile boolean cachedDark;
+        private static volatile int cachedKeyColor;
+
         static Palette of(Context context) {
             boolean dark = (context.getResources().getConfiguration().uiMode
                     & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
             if (Build.VERSION.SDK_INT >= 31) {
                 try {
+                    int a1_500 = context.getColor(android.R.color.system_accent1_500);
+                    Palette hit = cached;
+                    if (hit != null && cachedDark == dark && cachedKeyColor == a1_500) {
+                        return hit;
+                    }
+                    Palette created;
                     if (dark) {
                         int a1_200 = context.getColor(android.R.color.system_accent1_200);
                         int a1_300 = context.getColor(android.R.color.system_accent1_300);
@@ -156,10 +167,9 @@ final class MaterialYou {
                         int n2_800 = context.getColor(android.R.color.system_neutral2_800);
                         int navBg = blend(n1_900, a1_800, 0.24f);
                         int blur = blend(n1_900, a1_900, 0.35f);
-                        return new Palette(true, a1_200, a1_700, n2_800, navBg, a1_200, n2_300, a1_300, a1_900, blur);
+                        created = new Palette(true, a1_200, a1_700, n2_800, navBg, a1_200, n2_300, a1_300, a1_900, blur);
                     } else {
                         int a1_100 = context.getColor(android.R.color.system_accent1_100);
-                        int a1_500 = context.getColor(android.R.color.system_accent1_500);
                         int a1_600 = context.getColor(android.R.color.system_accent1_600);
                         int a2_50 = context.getColor(android.R.color.system_accent2_50);
                         int a2_100 = context.getColor(android.R.color.system_accent2_100);
@@ -167,15 +177,26 @@ final class MaterialYou {
                         int n2_500 = context.getColor(android.R.color.system_neutral2_500);
                         int navBg = blend(n1_50, a2_100, 0.55f);
                         int recv = blend(n1_50, a2_50, 0.65f);
-                        return new Palette(false, a1_600, a1_100, recv, navBg, a1_600, n2_500, a1_500, 0xFFFFFFFF, navBg);
+                        created = new Palette(false, a1_600, a1_100, recv, navBg, a1_600, n2_500, a1_500, 0xFFFFFFFF, navBg);
                     }
+                    cachedDark = dark;
+                    cachedKeyColor = a1_500;
+                    cached = created;
+                    return created;
                 } catch (Throwable ignored) {
                 }
             }
-            if (dark) {
-                return new Palette(true, 0xFFA8C7FA, 0xFF0842A0, 0xFF282A2F, 0xFF1B2029, 0xFFA8C7FA, 0xFFB0B5BE, 0xFF8AB4F8, 0xFF062E6F, 0xFF181C24);
+            Palette hit = cached;
+            if (hit != null && cachedDark == dark && cachedKeyColor == 0) {
+                return hit;
             }
-            return new Palette(false, 0xFF1A73E8, 0xFFD3E3FD, 0xFFF0F4FA, 0xFFEBF2FC, 0xFF1A73E8, 0xFF5F6368, 0xFF1A73E8, 0xFFFFFFFF, 0xFFEBF2FC);
+            Palette created = dark
+                    ? new Palette(true, 0xFFA8C7FA, 0xFF0842A0, 0xFF282A2F, 0xFF1B2029, 0xFFA8C7FA, 0xFFB0B5BE, 0xFF8AB4F8, 0xFF062E6F, 0xFF181C24)
+                    : new Palette(false, 0xFF1A73E8, 0xFFD3E3FD, 0xFFF0F4FA, 0xFFEBF2FC, 0xFF1A73E8, 0xFF5F6368, 0xFF1A73E8, 0xFFFFFFFF, 0xFFEBF2FC);
+            cachedDark = dark;
+            cachedKeyColor = 0;
+            cached = created;
+            return created;
         }
     }
 
@@ -273,8 +294,25 @@ final class MaterialYou {
      * every ViewPager2 folder page, AND tints the Compose header pill ("聊天") and folder filter
      * pills ("全部 / 好友 / 群組 / 官方帳號 / 社群") with the Material You accent palette.
      */
+    static void clearComposeTintIfNeeded() {
+        if (COMPOSE_TINTED.isEmpty()) {
+            return;
+        }
+        for (View v : new java.util.ArrayList<>(COMPOSE_TINTED.keySet())) {
+            if (v != null) {
+                v.setLayerType(View.LAYER_TYPE_NONE, null);
+                BADGE_APPLIED.remove(v);
+            }
+        }
+        COMPOSE_TINTED.clear();
+    }
+
     static void applyChatListBadges(View decorView) {
-        if (decorView == null || !LineSettings.materialYouTheme()) {
+        if (decorView == null) {
+            return;
+        }
+        if (!LineSettings.materialYouTheme()) {
+            clearComposeTintIfNeeded();
             return;
         }
         Context ctx = decorView.getContext();
@@ -388,6 +426,7 @@ final class MaterialYou {
         layerPaint.setColorFilter(new android.graphics.ColorMatrixColorFilter(m));
         view.setLayerType(View.LAYER_TYPE_HARDWARE, layerPaint);
         BADGE_APPLIED.put(view, accent);
+        COMPOSE_TINTED.put(view, Boolean.TRUE);
     }
 
     private static void tintBadge(View view, Palette palette) {
