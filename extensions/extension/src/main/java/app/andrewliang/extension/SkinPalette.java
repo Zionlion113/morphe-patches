@@ -8,9 +8,9 @@ import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.LayerDrawable;
+import android.os.Build;
 import android.view.View;
 import android.widget.ImageView;
-import kotlin.KotlinVersion;
 
 final class SkinPalette {
     private static final float BOTTOM_DP = 110.0f;
@@ -154,13 +154,12 @@ final class SkinPalette {
                 int i7 = i6 >>> 24;
                 if (i7 != 0) {
                     long j5 = i7;
-                    j += ((long) ((i6 >> 16) & KotlinVersion.MAX_COMPONENT_VALUE)) * j5;
-                    j2 += ((long) ((i6 >> 8) & KotlinVersion.MAX_COMPONENT_VALUE)) * j5;
-                    j3 += ((long) (i6 & KotlinVersion.MAX_COMPONENT_VALUE)) * j5;
+                    j += ((long) ((i6 >> 16) & 0xFF)) * j5;
+                    j2 += ((long) ((i6 >> 8) & 0xFF)) * j5;
+                    j3 += ((long) (i6 & 0xFF)) * j5;
                     j4 += j5;
                 }
                 i5++;
-                i4 = i4;
             }
             i4++;
         }
@@ -187,7 +186,7 @@ final class SkinPalette {
             if (bitmap == null || bitmap.isRecycled()) {
                 return false;
             }
-            Bitmap bitmapCopy = bitmap.getConfig() == Bitmap.Config.HARDWARE ? bitmap.copy(Bitmap.Config.ARGB_8888, false) : bitmap;
+            Bitmap bitmapCopy = (Build.VERSION.SDK_INT >= 26 && bitmap.getConfig() == Bitmap.Config.HARDWARE) ? bitmap.copy(Bitmap.Config.ARGB_8888, false) : bitmap;
             if (bitmapCopy == null) {
                 return false;
             }

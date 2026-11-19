@@ -36,6 +36,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Locale;
@@ -165,6 +166,13 @@ final class MaterialYou {
     // Fast O(1) caches for Jetpack Compose color & theme-element hooks
     private static final Map<Integer, Integer> COMPOSE_RES_KIND = new ConcurrentHashMap<>();
     private static final Map<Set<?>, Integer> COMPOSE_SET_KIND = new ConcurrentHashMap<>();
+    private static final int[][] BUBBLE_STATE_SETS = {
+            new int[]{android.R.attr.state_pressed},
+            new int[]{android.R.attr.state_selected},
+            new int[]{android.R.attr.state_activated},
+            new int[]{}
+    };
+    private static final Map<Integer, ColorStateList> BUBBLE_CSL_CACHE = new ConcurrentHashMap<>();
 
     private static volatile Context appContext;
     private static volatile Boolean lastActivityDark;
@@ -181,7 +189,12 @@ final class MaterialYou {
     }
 
     static boolean anyEnabled() {
-        return true;
+        return LineSettings.materialYouTheme()
+                || LineSettings.materialYouNavBar()
+                || LineSettings.chatBubbleWallpaper()
+                || LineSettings.chatHeaderWhite()
+                || LineSettings.pixelFoldAdaptive()
+                || LineSettings.hasAnyChatBubbleColors();
     }
 
     static void syncActivityUiMode(View view) {
@@ -440,7 +453,7 @@ final class MaterialYou {
      * background wallpaper ({@code ChatHistorySkinImageView}), cached per drawable &amp; bitmap generation.
      */
     static final class WallpaperPalette {
-        final Drawable drawableRef;
+        final WeakReference<Drawable> drawableRef;
         final int bitmapGenId;
         final int viewWidth;
         final int viewHeight;
@@ -461,7 +474,7 @@ final class MaterialYou {
                 int sendBubble,
                 int receiveBubble
         ) {
-            this.drawableRef = drawableRef;
+            this.drawableRef = new WeakReference<>(drawableRef);
             this.bitmapGenId = bitmapGenId;
             this.viewWidth = viewWidth;
             this.viewHeight = viewHeight;
@@ -498,7 +511,7 @@ final class MaterialYou {
 
             WallpaperPalette cached = SKIN_WALLPAPER_CACHE.get(skinView);
             if (cached != null
-                    && cached.drawableRef == d
+                    && cached.drawableRef.get() == d
                     && cached.bitmapGenId == genId
                     && cached.viewWidth == w
                     && cached.viewHeight == h
@@ -1042,12 +1055,21 @@ final class MaterialYou {
         if (skinView != null) {
             BlurBars.disableForceDarkChainIfLight(skinView);
         }
-        boolean dark = isNightResources(decorView.getResources());
-        WallpaperPalette wp = WallpaperPalette.fromSkin(skinView, dark);
+
+        int sendRule = readStoredSendRule(chatId, chatTitle);
+        int recvRule = readStoredRecvRule(chatId, chatTitle);
+        boolean needsWallpaper = LineSettings.chatBubbleWallpaper()
+                || sendRule == MODE_WALLPAPER
+                || recvRule == MODE_WALLPAPER;
+        WallpaperPalette wp = null;
+        if (needsWallpaper) {
+            boolean dark = isNightResources(decorView.getResources());
+            wp = WallpaperPalette.fromSkin(skinView, dark);
+        }
         lastActiveWallpaperPalette = wp;
 
         if (listView instanceof ViewGroup) {
-            applyChatBubbles((ViewGroup) listView, chatId, chatTitle, wp);
+            applyChatBubbles((ViewGroup) listView, sendRule, recvRule, wp);
         }
     }
 
@@ -1115,9 +1137,7 @@ final class MaterialYou {
         return 0;
     }
 
-    static void applyChatBubbles(ViewGroup listView, String chatId, String chatTitle, WallpaperPalette wp) {
-        int sendRule = readStoredSendRule(chatId, chatTitle);
-        int recvRule = readStoredRecvRule(chatId, chatTitle);
+    static void applyChatBubbles(ViewGroup listView, int sendRule, int recvRule, WallpaperPalette wp) {
         boolean needsPalette = LineSettings.materialYouTheme()
                 || sendRule == MODE_MATERIAL_YOU || recvRule == MODE_MATERIAL_YOU
                 || sendRule == MODE_WALLPAPER || recvRule == MODE_WALLPAPER;
@@ -1171,22 +1191,30 @@ final class MaterialYou {
         }
     }
 
+    private static ColorStateList bubbleColorStateList(int bubbleColor) {
+        ColorStateList cached = BUBBLE_CSL_CACHE.get(bubbleColor);
+        if (cached != null) {
+            return cached;
+        }
+        int pressedColor = blend(bubbleColor, 0xFF000000, 0.12f) | 0xFF000000;
+        ColorStateList csl = new ColorStateList(
+                BUBBLE_STATE_SETS,
+                new int[]{pressedColor, pressedColor, pressedColor, bubbleColor}
+        );
+        if (BUBBLE_CSL_CACHE.size() >= 32) {
+            BUBBLE_CSL_CACHE.clear();
+        }
+        BUBBLE_CSL_CACHE.put(bubbleColor, csl);
+        return csl;
+    }
+
     private static void tintRowBubbles(View row, int bubbleColor) {
         boolean lightBubble = isLightColor(bubbleColor);
         int textColor = lightBubble ? 0xFF1A1C1E : 0xFFFFFFFF;
         int subTextColor = lightBubble ? 0xBD1A1C1E : 0xD6FFFFFF;
         int linkColor = lightBubble ? 0xFF0B57D0 : 0xFFA8C7FA;
         int dividerColor = lightBubble ? 0x26000000 : 0x33FFFFFF;
-        int pressedColor = blend(bubbleColor, 0xFF000000, 0.12f) | 0xFF000000;
-        ColorStateList bubbleCsl = new ColorStateList(
-                new int[][]{
-                        new int[]{android.R.attr.state_pressed},
-                        new int[]{android.R.attr.state_selected},
-                        new int[]{android.R.attr.state_activated},
-                        new int[]{}
-                },
-                new int[]{pressedColor, pressedColor, pressedColor, bubbleColor}
-        );
+        ColorStateList bubbleCsl = bubbleColorStateList(bubbleColor);
 
         for (String idName : BUBBLE_CONTAINER_IDS) {
             View bubble = BlurBars.find(row, idName);
@@ -1264,7 +1292,10 @@ final class MaterialYou {
                 if (textView.getCurrentTextColor() != textColor) {
                     textView.setTextColor(textColor);
                 }
-                textView.setLinkTextColor(linkColor);
+                ColorStateList curLink = textView.getLinkTextColors();
+                if (curLink == null || curLink.getDefaultColor() != linkColor) {
+                    textView.setLinkTextColor(linkColor);
+                }
             }
         }
         for (String subId : BUBBLE_SUBTEXT_IDS) {
@@ -1279,7 +1310,10 @@ final class MaterialYou {
         for (String divId : BUBBLE_DIVIDER_IDS) {
             View divider = BlurBars.find(container, divId);
             if (divider != null && divider.getVisibility() == View.VISIBLE) {
-                divider.setBackgroundColor(dividerColor);
+                Drawable divBg = divider.getBackground();
+                if (!(divBg instanceof ColorDrawable) || ((ColorDrawable) divBg).getColor() != dividerColor) {
+                    divider.setBackgroundColor(dividerColor);
+                }
             }
         }
         boolean materialYouOn = LineSettings.materialYouTheme();
@@ -1425,8 +1459,14 @@ final class MaterialYou {
 
     private static String resolveChatId(View decorView, View header, String chatTitle) {
         String cached = CHAT_IDS.get(decorView);
-        if (cached != null && !cached.isEmpty() && !cached.startsWith("title_")) {
-            return cached;
+        if (cached != null && !cached.isEmpty()) {
+            if (!cached.startsWith("title_")) {
+                return cached;
+            }
+            String expectedFallback = (chatTitle != null && !chatTitle.isEmpty()) ? ("title_" + chatTitle) : null;
+            if (cached.equals(expectedFallback)) {
+                return cached;
+            }
         }
         Activity activity = activityOf(decorView.getContext());
         String extracted = extractChatIdFromIntent(activity);

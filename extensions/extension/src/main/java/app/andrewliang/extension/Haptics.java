@@ -60,6 +60,18 @@ public final class Haptics {
                 }
             });
         }
+
+        @Override // app.andrewliang.extension.ViewFinder.Lifecycle, android.app.Application.ActivityLifecycleCallbacks
+        public void onActivityDestroyed(Activity activity) {
+            Window window = activity.getWindow();
+            if (window == null) {
+                return;
+            }
+            TouchCallback touchCallback = Haptics.WINDOWS.remove(window);
+            if (touchCallback != null) {
+                touchCallback.listener = null;
+            }
+        }
     }
 
     public static void setUnsendClickListener(View view, final View.OnClickListener onClickListener) {

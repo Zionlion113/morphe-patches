@@ -93,17 +93,16 @@ final class ChatPanels {
         return null;
     }
 
+    private static final int[] TMP_LOC = new int[2];
+
     static int chromeTop(View view, View view2) {
         int i;
-        int[] iArr = new int[2];
+        int[] iArr = TMP_LOC;
         if (view == null || !view.isShown() || view.getHeight() <= 0) {
             i = Integer.MAX_VALUE;
         } else {
             view.getLocationInWindow(iArr);
             i = iArr[1];
-        }
-        if (view2 != null) {
-            find(view2, CONTAINER);
         }
         if (i == Integer.MAX_VALUE) {
             return 0;
@@ -121,7 +120,7 @@ final class ChatPanels {
     }
 
     static int coverBottom(View view, View view2, View view3) {
-        int[] iArr = new int[2];
+        int[] iArr = TMP_LOC;
         int iMax = 0;
         if (view != null && view.isShown() && view.getHeight() > 0) {
             view.getLocationInWindow(iArr);
@@ -265,7 +264,6 @@ final class ChatPanels {
                         this.fill.setColor(i);
                     } else {
                         this.fill.setColor(-16777216);
-                        bounds.height();
                         this.fill.setShader(new LinearGradient(0.0f, bounds.top, 0.0f, bounds.top + iDp, new int[]{16777215 & i, i}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
                     }
                 }

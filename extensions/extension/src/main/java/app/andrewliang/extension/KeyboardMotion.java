@@ -7,6 +7,7 @@ import android.view.View;
 import android.view.ViewParent;
 import android.view.WindowInsets;
 import android.view.WindowInsetsAnimation;
+import java.lang.ref.WeakReference;
 import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
@@ -14,9 +15,9 @@ import java.util.WeakHashMap;
 public final class KeyboardMotion {
     private static final String CHAT_SPACER = "chat_ui_bottom_padding_spacer";
     private static boolean registered;
-    private static final Map<View, Boolean> MOVING = new WeakHashMap();
-    private static final Map<View, Runnable> ON_STOP = new WeakHashMap();
-    private static final Map<View, Boolean> INSTALLED = new WeakHashMap();
+    private static final Map<View, Boolean> MOVING = new WeakHashMap<>();
+    private static final Map<View, Runnable> ON_STOP = new WeakHashMap<>();
+    private static final Map<View, Boolean> INSTALLED = new WeakHashMap<>();
 
     private KeyboardMotion() {
     }
@@ -31,6 +32,15 @@ public final class KeyboardMotion {
             public void onActivityResumed(Activity activity) {
                 KeyboardMotion.watch(activity);
             }
+
+            @Override // app.andrewliang.extension.ViewFinder.Lifecycle, android.app.Application.ActivityLifecycleCallbacks
+            public void onActivityDestroyed(Activity activity) {
+                if (activity.getWindow() != null) {
+                    View decorView = activity.getWindow().getDecorView();
+                    MOVING.remove(decorView);
+                    ON_STOP.remove(decorView);
+                }
+            }
         });
     }
 
@@ -41,6 +51,11 @@ public final class KeyboardMotion {
 
     static void onStop(View view, Runnable runnable) {
         ON_STOP.put(view, runnable);
+    }
+
+    static void clearOnStop(View view) {
+        MOVING.remove(view);
+        ON_STOP.remove(view);
     }
 
     public static boolean enabled() {
@@ -75,7 +90,7 @@ public final class KeyboardMotion {
     }
 
     private static final class Callback extends WindowInsetsAnimation.Callback {
-        private final View decor;
+        private final WeakReference<View> decor;
         private int running;
 
         @Override // android.view.WindowInsetsAnimation.Callback
@@ -85,14 +100,15 @@ public final class KeyboardMotion {
 
         Callback(View view) {
             super(1);
-            this.decor = view;
+            this.decor = new WeakReference<>(view);
         }
 
         @Override // android.view.WindowInsetsAnimation.Callback
         public void onPrepare(WindowInsetsAnimation windowInsetsAnimation) {
-            if (isIme(windowInsetsAnimation) && KeyboardMotion.enabled()) {
+            View decorView = this.decor.get();
+            if (decorView != null && isIme(windowInsetsAnimation) && KeyboardMotion.enabled()) {
                 this.running++;
-                KeyboardMotion.MOVING.put(this.decor, Boolean.TRUE);
+                KeyboardMotion.MOVING.put(decorView, Boolean.TRUE);
             }
         }
 
@@ -107,8 +123,12 @@ public final class KeyboardMotion {
             if (i2 > 0) {
                 return;
             }
-            KeyboardMotion.MOVING.remove(this.decor);
-            Runnable runnable = (Runnable) KeyboardMotion.ON_STOP.get(this.decor);
+            View decorView = this.decor.get();
+            if (decorView == null) {
+                return;
+            }
+            KeyboardMotion.MOVING.remove(decorView);
+            Runnable runnable = KeyboardMotion.ON_STOP.get(decorView);
             if (runnable != null) {
                 runnable.run();
             }

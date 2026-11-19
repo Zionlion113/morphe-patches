@@ -214,6 +214,29 @@ public final class LineSettings {
         return isOn(CHAT_BUBBLE_WALLPAPER, true);
     }
 
+    private static volatile Boolean hasCustomChatBubbles;
+
+    public static boolean hasAnyChatBubbleColors() {
+        if (!rowIncluded()) return false;
+        Boolean cached = hasCustomChatBubbles;
+        if (cached != null) return cached;
+        boolean found = false;
+        SharedPreferences preferences = preferences();
+        if (preferences != null) {
+            for (Map.Entry<String, ?> entry : preferences.getAll().entrySet()) {
+                String key = entry.getKey();
+                if ((key.startsWith(CHAT_BUBBLE_SEND_PREFIX) || key.startsWith(CHAT_BUBBLE_RECV_PREFIX))
+                        && entry.getValue() instanceof Integer
+                        && ((Integer) entry.getValue()) != 0) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        hasCustomChatBubbles = found;
+        return found;
+    }
+
     public static int chatBubbleSendColor(String chatId) {
         if (chatId == null || chatId.isEmpty()) return 0;
         return number(CHAT_BUBBLE_SEND_PREFIX + chatId, 0);
@@ -228,6 +251,11 @@ public final class LineSettings {
         if (chatId == null || chatId.isEmpty()) return;
         setNumber(CHAT_BUBBLE_SEND_PREFIX + chatId, sendColor);
         setNumber(CHAT_BUBBLE_RECV_PREFIX + chatId, receiveColor);
+        if (sendColor != 0 || receiveColor != 0) {
+            hasCustomChatBubbles = Boolean.TRUE;
+        } else {
+            hasCustomChatBubbles = null;
+        }
     }
 
     public static void clearChatBubbleColors(String chatId) {
