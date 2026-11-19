@@ -1,3 +1,9 @@
+## [3.13.0-dev.7](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.6...v3.13.0-dev.7) (2026-11-19)
+
+### 🐛 Bug Fixes
+
+* **LINE:** refine glass input pill with crisp vertical top-to-bottom white rim ([16e3be8](https://github.com/Zionlion113/morphe-patches/commit/16e3be89658f4a26c5158330c40a5b45e93ef899))
+
 ## [3.13.0-dev.6](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.5...v3.13.0-dev.6) (2026-11-19)
 
 ### 🐛 Bug Fixes

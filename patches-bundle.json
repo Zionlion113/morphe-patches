@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-19T04:01:05",
-  "description": "## [3.13.0-dev.6](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.5...v3.13.0-dev.6) (2026-11-19)\n\n### 🐛 Bug Fixes\n\n* **LINE:** keep chat message list padded above keyboard when sending messages ([9d70c29](https://github.com/Zionlion113/morphe-patches/commit/9d70c290d080d265a436bcbe48eab85c8b14b74a))",
-  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.6/patches-3.13.0-dev.6.mpp",
+  "created_at": "2026-11-19T04:05:20",
+  "description": "## [3.13.0-dev.7](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.6...v3.13.0-dev.7) (2026-11-19)\n\n### 🐛 Bug Fixes\n\n* **LINE:** refine glass input pill with crisp vertical top-to-bottom white rim ([16e3be8](https://github.com/Zionlion113/morphe-patches/commit/16e3be89658f4a26c5158330c40a5b45e93ef899))",
+  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.7/patches-3.13.0-dev.7.mpp",
   "signature_download_url": "",
-  "version": "3.13.0-dev.6"
+  "version": "3.13.0-dev.7"
 }
