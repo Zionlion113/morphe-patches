@@ -1289,10 +1289,10 @@ final class MaterialYou {
                 : ctx.getResources().getDisplayMetrics().widthPixels;
         int tabCount = visibleTabs.size();
         int desiredPillWidth = Math.min(
-                totalWidth - BlurBars.dp(ctx, 24.0f),
-                tabCount * BlurBars.dp(ctx, 88.0f) + BlurBars.dp(ctx, 16.0f)
+                totalWidth - BlurBars.dp(ctx, 28.0f),
+                tabCount * BlurBars.dp(ctx, 100.0f) + BlurBars.dp(ctx, 16.0f)
         );
-        int sideInset = Math.max(BlurBars.dp(ctx, 12.0f), (totalWidth - desiredPillWidth) / 2);
+        int sideInset = Math.max(BlurBars.dp(ctx, 14.0f), (totalWidth - desiredPillWidth) / 2);
 
         if (tabsParent != null) {
             int[] origPad = ORIG_NAV_PADDING.get(tabsParent);
@@ -1311,7 +1311,7 @@ final class MaterialYou {
             }
         }
 
-        float liftY = -BlurBars.dp(ctx, 6.0f);
+        float liftY = -BlurBars.dp(ctx, 12.0f);
         if (pillHost.getTranslationY() != liftY) {
             pillHost.setTranslationY(liftY);
         }
@@ -1509,6 +1509,7 @@ final class MaterialYou {
             }
             vg.setClipChildren(false);
             vg.setClipToPadding(false);
+            vg.setClipToOutline(false);
             p = vg.getParent();
         }
         listGroup.setClipToPadding(false);
@@ -1551,12 +1552,13 @@ final class MaterialYou {
                 break;
             }
             String parentClass = parent.getClass().getName();
-            boolean isPager = parentClass.contains("ViewPager") || parentClass.contains("RecyclerView");
-            if (!isPager && cur.getLayoutParams() instanceof ViewGroup.MarginLayoutParams && (
+            boolean isPagerOrConstraint = parentClass.contains("ViewPager")
+                    || parentClass.contains("RecyclerView")
+                    || parentClass.contains("ConstraintLayout");
+            if (!isPagerOrConstraint && cur.getLayoutParams() instanceof ViewGroup.MarginLayoutParams && (
                     parent instanceof FrameLayout
                             || parent instanceof RelativeLayout
                             || parent instanceof LinearLayout
-                            || parentClass.contains("ConstraintLayout")
                             || parentClass.contains("CoordinatorLayout")
             )) {
                 candidate = cur;
@@ -1567,8 +1569,9 @@ final class MaterialYou {
     }
 
     /**
-     * Computes vertical bounds {@code [top, bottom]} in {@code tab} coordinates around
-     * {@code bnb_button_image} and {@code bnb_button_text} so badge headroom does not stretch the pill.
+     * Computes vertical bounds {@code [top, bottom]} in {@code tab} coordinates anchored to the bottom
+     * of {@code bnb_button_image} and {@code bnb_button_text} so internal icon headroom never shifts
+     * the pill above the text label.
      */
     static void computeActivePillVerticalBounds(
             View tab,
@@ -1581,48 +1584,51 @@ final class MaterialYou {
     ) {
         int tabH = tab.getHeight();
         tab.getLocationInWindow(locA);
-        float cTop = Float.MAX_VALUE;
-        float cBot = -Float.MAX_VALUE;
-        if (iconView != null && iconView.getVisibility() == View.VISIBLE && iconView.getHeight() > 0) {
-            iconView.getLocationInWindow(locB);
-            float t = locB[1] - locA[1];
-            float b = t + iconView.getHeight();
-            if (t < cTop) cTop = t;
-            if (b > cBot) cBot = b;
-        }
+
+        float textBottom = -1f;
         if (textView != null && textView.getVisibility() == View.VISIBLE && textView.getHeight() > 0) {
             textView.getLocationInWindow(locB);
-            float t = locB[1] - locA[1];
-            float b = t + textView.getHeight();
-            if (t < cTop) cTop = t;
-            if (b > cBot) cBot = b;
+            float textRelTop = locB[1] - locA[1];
+            if (textView instanceof TextView) {
+                TextView tv = (TextView) textView;
+                if (tv.getLayout() != null && tv.getLineCount() > 0) {
+                    int lineBot = tv.getCompoundPaddingTop() + tv.getLayout().getLineBottom(tv.getLineCount() - 1);
+                    textBottom = textRelTop + lineBot;
+                }
+            }
+            if (textBottom < 0f) {
+                textBottom = textRelTop + textView.getHeight() - textView.getPaddingBottom();
+            }
         }
-        if (cTop >= cBot) {
-            cBot = tabH - density * 3.0f;
-            cTop = Math.max(0f, cBot - density * 36.0f);
+        if (textBottom <= 0f) {
+            textBottom = tabH - density * 3.0f;
         }
-        float padV = density * 3.5f;
-        float top = cTop - padV;
-        float bottom = cBot + padV;
+
+        float iconVisualTop = -1f;
+        if (iconView != null && iconView.getVisibility() == View.VISIBLE && iconView.getHeight() > 0) {
+            iconView.getLocationInWindow(locB);
+            float iconRelTop = locB[1] - locA[1] + iconView.getPaddingTop();
+            float iconRelBot = locB[1] - locA[1] + iconView.getHeight() - iconView.getPaddingBottom();
+            // LINE's bnb_button_image includes empty badge headroom above a ~20dp glyph aligned to iconRelBot.
+            iconVisualTop = Math.max(iconRelTop, iconRelBot - density * 20.0f);
+        }
+        if (iconVisualTop < 0f || iconVisualTop >= textBottom - density * 14.0f) {
+            iconVisualTop = textBottom - density * 32.0f;
+        }
+
+        float top = iconVisualTop - density * 4.8f;
+        float bottom = textBottom + density * 5.2f;
         float minH = density * 38.0f;
-        float maxH = density * 46.0f;
-        float h = bottom - top;
-        if (h < minH) {
-            float mid = (top + bottom) * 0.5f;
-            top = mid - minH * 0.5f;
-            bottom = mid + minH * 0.5f;
-        } else if (h > maxH) {
-            float mid = (top + bottom) * 0.5f;
-            top = mid - maxH * 0.5f;
-            bottom = mid + maxH * 0.5f;
+        if (bottom - top < minH) {
+            top = bottom - minH;
         }
         outTopBottom[0] = top;
         outTopBottom[1] = bottom;
     }
 
     static float computeActivePillWidth(int tabWidth, float pillHeight, float density) {
-        float desiredW = Math.max(pillHeight + density * 22.0f, density * 68.0f);
-        float maxAllowedW = Math.max(density * 44.0f, tabWidth - density * 6.0f);
+        float desiredW = Math.max(pillHeight * 1.85f, density * 78.0f);
+        float maxAllowedW = Math.max(density * 46.0f, tabWidth - density * 6.0f);
         return Math.min(desiredW, maxAllowedW);
     }
 
