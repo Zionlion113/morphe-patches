@@ -767,13 +767,7 @@ public final class BlurBars {
             if (id == iId2) {
                 statusBar(view2, viewFindViewById);
             } else if (id == iId3) {
-                if (LineSettings.navBarPill()) {
-                    MIRRORED.remove(view2);
-                    if (view2.getBackground() != null) {
-                        view2.setBackground(null);
-                    }
-                    hide(view2);
-                } else if (LineSettings.materialYouNavBar()) {
+                if (LineSettings.navBarPill() || LineSettings.materialYouNavBar()) {
                     MIRRORED.remove(view2);
                     HIDDEN.remove(view2);
                 } else {
