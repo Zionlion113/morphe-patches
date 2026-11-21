@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-21T16:12:31",
-  "description": "## [3.13.0-dev.24](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.23...v3.13.0-dev.24) (2026-11-21)\n\n### 🐛 Bug Fixes\n\n* **LINE:** fix floating pill navigation bar and active tab indicator bounds ([5452e33](https://github.com/Zionlion113/morphe-patches/commit/5452e33edf22314f3622d817e13225a4f63d31ac))",
-  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.24/patches-3.13.0-dev.24.mpp",
+  "created_at": "2026-11-21T16:39:09",
+  "description": "## [3.13.0-dev.25](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.24...v3.13.0-dev.25) (2026-11-21)\n\n### 🐛 Bug Fixes\n\n* **LINE:** center floating pill navigation bar vertically over tab icons and labels ([2c89068](https://github.com/Zionlion113/morphe-patches/commit/2c890686c5ba8959140cb661257bf43f2f613b0e))",
+  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.25/patches-3.13.0-dev.25.mpp",
   "signature_download_url": "",
-  "version": "3.13.0-dev.24"
+  "version": "3.13.0-dev.25"
 }

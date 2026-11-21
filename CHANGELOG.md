@@ -1,3 +1,9 @@
+## [3.13.0-dev.25](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.24...v3.13.0-dev.25) (2026-11-21)
+
+### 🐛 Bug Fixes
+
+* **LINE:** center floating pill navigation bar vertically over tab icons and labels ([2c89068](https://github.com/Zionlion113/morphe-patches/commit/2c890686c5ba8959140cb661257bf43f2f613b0e))
+
 ## [3.13.0-dev.24](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.23...v3.13.0-dev.24) (2026-11-21)
 
 ### 🐛 Bug Fixes
