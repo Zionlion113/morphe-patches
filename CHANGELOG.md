@@ -1,3 +1,9 @@
+## [3.13.0-dev.24](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.23...v3.13.0-dev.24) (2026-11-21)
+
+### 🐛 Bug Fixes
+
+* **LINE:** fix floating pill navigation bar and active tab indicator bounds ([5452e33](https://github.com/Zionlion113/morphe-patches/commit/5452e33edf22314f3622d817e13225a4f63d31ac))
+
 ## [3.13.0-dev.23](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.22...v3.13.0-dev.23) (2026-11-21)
 
 ### ✨ New Features
