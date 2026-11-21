@@ -330,6 +330,10 @@ final class LineSettingsScreen {
                         t("Material You bottom navigation bar", "底部導覽列使用 Material You 配色"),
                         t("Colors the main screen bottom tabs (Home, Chats, etc.) with Material You instead of black.", "主畫面底部的分頁列（主頁、聊天等）改用 Material You 配色取代原本的黑色。"),
                         true, () -> restart.setVisibility(View.VISIBLE)));
+                content.addView(toggle(activity, LineSettings.NAV_BAR_PILL,
+                        t("Floating pill bottom navigation bar", "懸浮膠囊底部導覽列"),
+                        t("Shapes the bottom tab bar into a floating frosted-glass capsule with a pill indicator on the active tab.", "將底部分頁列改為懸浮毛玻璃圓角膠囊造型，並為選中的分頁加上膠囊指示器。"),
+                        true, null));
                 content.addView(toggle(activity, LineSettings.PIXEL_ULTRA_HDR,
                         t("Ultra HDR & Wide Color Gamut", "Ultra HDR 與廣色域顯示"),
                         t("Enables HDR / Display P3 color mode and full cutout rendering on photo & video viewers (Pixel Pro / OLED displays).", "在圖片、影片瀏覽與聊天室啟用 HDR / 廣色域色彩模式與全螢幕挖孔延伸顯示。"),
