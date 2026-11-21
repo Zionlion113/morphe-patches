@@ -1,3 +1,9 @@
+## [3.13.0-dev.23](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.22...v3.13.0-dev.23) (2026-11-21)
+
+### ✨ New Features
+
+* **LINE:** add floating frosted-glass pill bottom navigation bar with active tab pill indicator ([#4](https://github.com/Zionlion113/morphe-patches/issues/4)) ([10e908c](https://github.com/Zionlion113/morphe-patches/commit/10e908c4942f56d75aa7d09e2b193696d2626913))
+
 ## [3.13.0-dev.22](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.21...v3.13.0-dev.22) (2026-11-19)
 
 ### 🐛 Bug Fixes
