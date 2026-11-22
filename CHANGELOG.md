@@ -1,3 +1,9 @@
+## [3.13.0-dev.30](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.29...v3.13.0-dev.30) (2026-11-22)
+
+### 🐛 Bug Fixes
+
+* **LINE:** align pill toolbar slots, animate active capsule, and stretch home page ([dee8e95](https://github.com/Zionlion113/morphe-patches/commit/dee8e95c771a1ff15ea6916115bf9942a822a218))
+
 ## [3.13.0-dev.29](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.28...v3.13.0-dev.29) (2026-11-22)
 
 ### 🐛 Bug Fixes
