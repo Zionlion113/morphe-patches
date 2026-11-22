@@ -149,7 +149,7 @@ public final class BlurBars {
     }
 
     public static void setNavigationBarColor(Window window, int i) {
-        if (enabled()) {
+        if (enabled() || LineSettings.navBarPill()) {
             i = 0;
         }
         window.setNavigationBarColor(i);
