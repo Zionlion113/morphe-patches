@@ -40,6 +40,7 @@ import android.os.SystemClock;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.MotionEvent;
+import android.view.RoundedCorner;
 import android.view.TouchDelegate;
 import android.view.View;
 import android.view.ViewGroup;
@@ -56,6 +57,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -175,6 +177,21 @@ final class MaterialYou {
             0xFFC2185B, // Berry Pink
             0xFF2B2D31, // Charcoal Glass
             0xFFFFFFFF, // Pure White
+    };
+
+    private static final int[] MY_SEED_PRESETS = {
+            0xFF1A73E8, // Pixel Blue
+            0xFF267D73, // Jade Teal
+            0xFF2E7D32, // Forest Green
+            0xFF6750A4, // Lavender Iris
+            0xFFD85A88, // Sakura Rose
+            0xFFD95D39, // Coral Sunset
+            0xFFC68400, // Honey Amber
+            0xFF00838F, // Ocean Cyan
+            0xFF3949AB, // Royal Indigo
+            0xFF8E24AA, // Berry Plum
+            0xFF6D4C41, // Warm Mocha
+            0xFF5F6368, // Monochrome Slate
     };
 
     private static final String CHAT_SETTINGS_ROW_TAG = "andrew_chat_setting_bubble_row";
@@ -354,7 +371,8 @@ final class MaterialYou {
 
         static volatile Palette cachedLight;
         static volatile Palette cachedDark;
-        private static volatile int cachedKeyColor;
+        static volatile int cachedKeyColor;
+        static volatile int cachedCustomSeed;
 
         static Palette of(Context context) {
             boolean dark;
@@ -391,6 +409,31 @@ final class MaterialYou {
         }
 
         private static Palette forMode(Context context, boolean dark) {
+            int customSeed = LineSettings.materialYouSeedColor();
+            if (customSeed != 0) {
+                if (cachedCustomSeed != customSeed) {
+                    cachedLight = null;
+                    cachedDark = null;
+                    cachedCustomSeed = customSeed;
+                    cachedKeyColor = 0;
+                }
+                Palette hit = dark ? cachedDark : cachedLight;
+                if (hit != null) {
+                    return hit;
+                }
+                Palette created = fromSeed(customSeed, dark);
+                if (dark) {
+                    cachedDark = created;
+                } else {
+                    cachedLight = created;
+                }
+                return created;
+            }
+            if (cachedCustomSeed != 0) {
+                cachedLight = null;
+                cachedDark = null;
+                cachedCustomSeed = 0;
+            }
             if (context == null) {
                 context = appContext;
             }
@@ -406,35 +449,10 @@ final class MaterialYou {
                     if (hit != null) {
                         return hit;
                     }
-                    Palette created;
+                    Palette created = systemPalette(context, dark);
                     if (dark) {
-                        int a1_200 = context.getColor(android.R.color.system_accent1_200);
-                        int a1_700 = context.getColor(android.R.color.system_accent1_700);
-                        int a1_800 = context.getColor(android.R.color.system_accent1_800);
-                        int a1_900 = context.getColor(android.R.color.system_accent1_900);
-                        int a3_200 = context.getColor(android.R.color.system_accent3_200);
-                        int n1_900 = context.getColor(android.R.color.system_neutral1_900);
-                        int n2_300 = context.getColor(android.R.color.system_neutral2_300);
-                        int n2_800 = context.getColor(android.R.color.system_neutral2_800);
-                        int navBg = blend(n1_900, a1_800, 0.24f);
-                        int blur = blend(n1_900, a1_900, 0.35f);
-                        int hiBg = tuneDarkHighlight(a1_200, a3_200);
-                        int onHi = tuneDarkOnHighlight(a1_900);
-                        created = new Palette(true, hiBg, hiBg, onHi, a1_700, n2_800, navBg, hiBg, n2_300, hiBg, onHi, blur);
                         cachedDark = created;
                     } else {
-                        int a1_100 = context.getColor(android.R.color.system_accent1_100);
-                        int a1_600 = context.getColor(android.R.color.system_accent1_600);
-                        int a2_50 = context.getColor(android.R.color.system_accent2_50);
-                        int a2_100 = context.getColor(android.R.color.system_accent2_100);
-                        int a3_600 = context.getColor(android.R.color.system_accent3_600);
-                        int n1_50 = context.getColor(android.R.color.system_neutral1_50);
-                        int n2_500 = context.getColor(android.R.color.system_neutral2_500);
-                        int navBg = blend(n1_50, a2_100, 0.55f);
-                        int recv = blend(n1_50, a2_50, 0.65f);
-                        int pillBg = tuneLightHighlight(a1_600, a3_600);
-                        int badgeBg = tuneLightHighlight(a1_500, a3_600);
-                        created = new Palette(false, pillBg, pillBg, 0xFFFFFFFF, a1_100, recv, navBg, pillBg, n2_500, badgeBg, 0xFFFFFFFF, navBg);
                         cachedLight = created;
                     }
                     return created;
@@ -450,15 +468,108 @@ final class MaterialYou {
             if (hit != null) {
                 return hit;
             }
-            Palette created = dark
-                    ? new Palette(true, 0xFFA8C7FA, 0xFFA8C7FA, 0xFF062E6F, 0xFF0842A0, 0xFF282A2F, 0xFF1B2029, 0xFFA8C7FA, 0xFFB0B5BE, 0xFF8AB4F8, 0xFF062E6F, 0xFF181C24)
-                    : new Palette(false, 0xFF1A73E8, 0xFF1A73E8, 0xFFFFFFFF, 0xFFD3E3FD, 0xFFF0F4FA, 0xFFEBF2FC, 0xFF1A73E8, 0xFF5F6368, 0xFF1A73E8, 0xFFFFFFFF, 0xFFEBF2FC);
+            Palette created = systemPalette(context, dark);
             if (dark) {
                 cachedDark = created;
             } else {
                 cachedLight = created;
             }
             return created;
+        }
+
+        static Palette systemPalette(Context context, boolean dark) {
+            if (context == null) {
+                context = appContext;
+            }
+            if (context != null && Build.VERSION.SDK_INT >= 31) {
+                try {
+                    int a1_500 = context.getColor(android.R.color.system_accent1_500);
+                    if (dark) {
+                        int a1_200 = context.getColor(android.R.color.system_accent1_200);
+                        int a1_700 = context.getColor(android.R.color.system_accent1_700);
+                        int a1_800 = context.getColor(android.R.color.system_accent1_800);
+                        int a1_900 = context.getColor(android.R.color.system_accent1_900);
+                        int a3_200 = context.getColor(android.R.color.system_accent3_200);
+                        int n1_900 = context.getColor(android.R.color.system_neutral1_900);
+                        int n2_300 = context.getColor(android.R.color.system_neutral2_300);
+                        int n2_800 = context.getColor(android.R.color.system_neutral2_800);
+                        int navBg = blend(n1_900, a1_800, 0.24f);
+                        int blur = blend(n1_900, a1_900, 0.35f);
+                        int hiBg = tuneDarkHighlight(a1_200, a3_200);
+                        int onHi = tuneDarkOnHighlight(a1_900);
+                        return new Palette(true, hiBg, hiBg, onHi, a1_700, n2_800, navBg, hiBg, n2_300, hiBg, onHi, blur);
+                    } else {
+                        int a1_100 = context.getColor(android.R.color.system_accent1_100);
+                        int a1_600 = context.getColor(android.R.color.system_accent1_600);
+                        int a2_50 = context.getColor(android.R.color.system_accent2_50);
+                        int a2_100 = context.getColor(android.R.color.system_accent2_100);
+                        int a3_600 = context.getColor(android.R.color.system_accent3_600);
+                        int n1_50 = context.getColor(android.R.color.system_neutral1_50);
+                        int n2_500 = context.getColor(android.R.color.system_neutral2_500);
+                        int navBg = blend(n1_50, a2_100, 0.55f);
+                        int recv = blend(n1_50, a2_50, 0.65f);
+                        int pillBg = tuneLightHighlight(a1_600, a3_600);
+                        int badgeBg = tuneLightHighlight(a1_500, a3_600);
+                        return new Palette(false, pillBg, pillBg, 0xFFFFFFFF, a1_100, recv, navBg, pillBg, n2_500, badgeBg, 0xFFFFFFFF, navBg);
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+            return dark
+                    ? new Palette(true, 0xFFA8C7FA, 0xFFA8C7FA, 0xFF062E6F, 0xFF0842A0, 0xFF282A2F, 0xFF1B2029, 0xFFA8C7FA, 0xFFB0B5BE, 0xFF8AB4F8, 0xFF062E6F, 0xFF181C24)
+                    : new Palette(false, 0xFF1A73E8, 0xFF1A73E8, 0xFFFFFFFF, 0xFFD3E3FD, 0xFFF0F4FA, 0xFFEBF2FC, 0xFF1A73E8, 0xFF5F6368, 0xFF1A73E8, 0xFFFFFFFF, 0xFFEBF2FC);
+        }
+
+        static Palette fromSeed(int seedArgb, boolean dark) {
+            float[] hsv = new float[3];
+            Color.colorToHSV(seedArgb | 0xFF000000, hsv);
+            float h = hsv[0];
+            float s = hsv[1];
+            float tHue = (h + 52.0f) % 360.0f;
+            boolean mono = s < 0.05f;
+            if (dark) {
+                if (mono) {
+                    return new Palette(
+                            true, 0xFFE2E2E6, 0xFFE2E2E6, 0xFF1A1C1E,
+                            0xFF3E4044, 0xFF282A2E, 0xFF1E2024,
+                            0xFFE2E2E6, 0xFFC4C6CA, 0xFFE2E2E6, 0xFF1A1C1E, 0xFF191B1F
+                    );
+                }
+                int a1_200 = Color.HSVToColor(new float[]{h, Math.min(0.46f, Math.max(0.24f, s * 0.56f)), 0.94f}) | 0xFF000000;
+                int a3_200 = Color.HSVToColor(new float[]{tHue, Math.min(0.42f, Math.max(0.20f, s * 0.50f)), 0.92f}) | 0xFF000000;
+                int a1_700 = Color.HSVToColor(new float[]{h, Math.min(0.76f, Math.max(0.38f, s * 0.85f)), 0.52f}) | 0xFF000000;
+                int a1_800 = Color.HSVToColor(new float[]{h, Math.min(0.78f, Math.max(0.38f, s * 0.86f)), 0.36f}) | 0xFF000000;
+                int a1_900 = Color.HSVToColor(new float[]{h, Math.min(0.82f, Math.max(0.42f, s * 0.90f)), 0.22f}) | 0xFF000000;
+                int n1_900 = Color.HSVToColor(new float[]{h, Math.min(0.10f, s * 0.14f), 0.12f}) | 0xFF000000;
+                int n2_300 = Color.HSVToColor(new float[]{h, Math.min(0.14f, s * 0.22f), 0.78f}) | 0xFF000000;
+                int n2_800 = Color.HSVToColor(new float[]{h, Math.min(0.16f, s * 0.24f), 0.20f}) | 0xFF000000;
+                int navBg = blend(n1_900, a1_800, 0.24f);
+                int blur = blend(n1_900, a1_900, 0.35f);
+                int hiBg = tuneDarkHighlight(a1_200, a3_200);
+                int onHi = tuneDarkOnHighlight(a1_900);
+                return new Palette(true, hiBg, hiBg, onHi, a1_700, n2_800, navBg, hiBg, n2_300, hiBg, onHi, blur);
+            } else {
+                if (mono) {
+                    return new Palette(
+                            false, 0xFF2E3135, 0xFF2E3135, 0xFFFFFFFF,
+                            0xFFE2E4E9, 0xFFF3F4F7, 0xFFECEEF2,
+                            0xFF2E3135, 0xFF5F6368, 0xFF2E3135, 0xFFFFFFFF, 0xFFECEEF2
+                    );
+                }
+                int a1_100 = Color.HSVToColor(new float[]{h, Math.min(0.26f, Math.max(0.12f, s * 0.30f)), 0.97f}) | 0xFF000000;
+                int a1_500 = Color.HSVToColor(new float[]{h, Math.min(0.84f, Math.max(0.42f, s * 0.92f)), 0.68f}) | 0xFF000000;
+                int a1_600 = Color.HSVToColor(new float[]{h, Math.min(0.86f, Math.max(0.45f, s * 0.95f)), 0.56f}) | 0xFF000000;
+                int a2_50 = Color.HSVToColor(new float[]{h, Math.min(0.08f, Math.max(0.03f, s * 0.10f)), 0.99f}) | 0xFF000000;
+                int a2_100 = Color.HSVToColor(new float[]{h, Math.min(0.16f, Math.max(0.07f, s * 0.20f)), 0.96f}) | 0xFF000000;
+                int a3_600 = Color.HSVToColor(new float[]{tHue, Math.min(0.80f, Math.max(0.38f, s * 0.88f)), 0.56f}) | 0xFF000000;
+                int n1_50 = Color.HSVToColor(new float[]{h, Math.min(0.03f, s * 0.05f), 0.99f}) | 0xFF000000;
+                int n2_500 = Color.HSVToColor(new float[]{h, Math.min(0.14f, s * 0.20f), 0.44f}) | 0xFF000000;
+                int navBg = blend(n1_50, a2_100, 0.55f);
+                int recv = blend(n1_50, a2_50, 0.65f);
+                int pillBg = tuneLightHighlight(a1_600, a3_600);
+                int badgeBg = tuneLightHighlight(a1_500, a3_600);
+                return new Palette(false, pillBg, pillBg, 0xFFFFFFFF, a1_100, recv, navBg, pillBg, n2_500, badgeBg, 0xFFFFFFFF, navBg);
+            }
         }
 
         private static int tuneLightHighlight(int primary, int tertiary) {
@@ -914,6 +1025,7 @@ final class MaterialYou {
     private static final float[] NAV_FLOAT_PAIR = new float[2];
 
     static void computeOuterPillHorizontalBounds(
+            View decorView,
             float hostWidth,
             int tabCount,
             float density,
@@ -921,15 +1033,29 @@ final class MaterialYou {
     ) {
         int safeCount = Math.max(1, tabCount);
         if (hostWidth <= density * 560.0f) {
-            float margin = density * 20.0f;
+            float margin = density * 32.0f;
+            if (decorView != null && Build.VERSION.SDK_INT >= 31) {
+                WindowInsets rootInsets = decorView.getRootWindowInsets();
+                if (rootInsets != null) {
+                    RoundedCorner bl = rootInsets.getRoundedCorner(RoundedCorner.POSITION_BOTTOM_LEFT);
+                    RoundedCorner br = rootInsets.getRoundedCorner(RoundedCorner.POSITION_BOTTOM_RIGHT);
+                    int cornerPx = Math.max(
+                            bl != null ? bl.getRadius() : 0,
+                            br != null ? br.getRadius() : 0
+                    );
+                    if (cornerPx > 0) {
+                        margin = Math.min(density * 38.0f, Math.max(margin, cornerPx * 0.68f));
+                    }
+                }
+            }
             outLeftRight[0] = margin;
             outLeftRight[1] = Math.max(margin + density * 120.0f, hostWidth - margin);
         } else {
             float maxPillW = Math.min(
-                    hostWidth - density * 44.0f,
-                    safeCount * density * 128.0f + density * 16.0f
+                    hostWidth - density * 64.0f,
+                    safeCount * density * 120.0f + density * 16.0f
             );
-            float left = Math.max(density * 22.0f, (hostWidth - maxPillW) * 0.5f);
+            float left = Math.max(density * 32.0f, (hostWidth - maxPillW) * 0.5f);
             outLeftRight[0] = left;
             outLeftRight[1] = Math.max(left + density * 120.0f, hostWidth - left);
         }
@@ -1521,7 +1647,7 @@ final class MaterialYou {
                 ? pillHost.getWidth()
                 : (decorView.getWidth() > 0 ? decorView.getWidth() : ctx.getResources().getDisplayMetrics().widthPixels);
         int tabCount = visibleTabs.size();
-        computeOuterPillHorizontalBounds(hostWidth, tabCount, density, NAV_FLOAT_PAIR);
+        computeOuterPillHorizontalBounds(decorView, hostWidth, tabCount, density, NAV_FLOAT_PAIR);
         float pillLeft = NAV_FLOAT_PAIR[0];
         float pillRight = NAV_FLOAT_PAIR[1];
         float concentricGap = density * 5.0f;
@@ -2854,7 +2980,7 @@ final class MaterialYou {
                 }
             }
 
-            computeOuterPillHorizontalBounds(w, slotCount, this.density, this.leftRight);
+            computeOuterPillHorizontalBounds(this.decorRef.get(), w, slotCount, this.density, this.leftRight);
             float left = this.leftRight[0];
             float right = this.leftRight[1];
             float concentricGap = this.density * 5.0f;
@@ -4352,6 +4478,474 @@ final class MaterialYou {
         });
         row.addView(applyBtn);
         return row;
+    }
+
+    static void invalidatePaletteCache() {
+        Palette.cachedLight = null;
+        Palette.cachedDark = null;
+        Palette.cachedKeyColor = 0;
+        Palette.cachedCustomSeed = 0;
+        BUBBLE_APPLIED.clear();
+        BUBBLE_BG_REF.clear();
+        NAV_APPLIED.clear();
+        BADGE_APPLIED.clear();
+        BUBBLE_CSL_CACHE.clear();
+    }
+
+    static void showMaterialYouPaletteDialog(Activity activity, Runnable onChanged) {
+        if (activity == null || activity.isFinishing()) {
+            return;
+        }
+        Locale locale = activity.getResources().getConfiguration().getLocales().get(0);
+        final boolean zh = locale != null && "zh".equals(locale.getLanguage());
+        final boolean dark = isNightResources(activity.getResources());
+
+        int savedSeed = LineSettings.materialYouSeedColor();
+        final boolean[] customMode = {savedSeed != 0};
+        int initialSeed = savedSeed != 0 ? savedSeed : MY_SEED_PRESETS[0];
+        final int[] currentSeed = {initialSeed | 0xFF000000};
+        final float[] seedHsv = new float[3];
+        Color.colorToHSV(currentSeed[0], seedHsv);
+        if (seedHsv[2] < 0.25f) {
+            seedHsv[2] = 0.72f;
+        }
+
+        ScrollView scroll = new ScrollView(activity);
+        LinearLayout root = new LinearLayout(activity);
+        root.setOrientation(LinearLayout.VERTICAL);
+        int pad = BlurBars.dp(activity, 18.0f);
+        root.setPadding(pad, BlurBars.dp(activity, 12.0f), pad, BlurBars.dp(activity, 8.0f));
+        scroll.addView(root);
+
+        // Live Material You mini-LINE preview card
+        LinearLayout previewBox = new LinearLayout(activity);
+        previewBox.setOrientation(LinearLayout.VERTICAL);
+        int previewPad = BlurBars.dp(activity, 14.0f);
+        previewBox.setPadding(previewPad, previewPad, previewPad, previewPad);
+        final GradientDrawable previewBg = new GradientDrawable();
+        previewBg.setCornerRadius(BlurBars.dp(activity, 18.0f));
+        previewBox.setBackground(previewBg);
+
+        LinearLayout headerRow = new LinearLayout(activity);
+        headerRow.setOrientation(LinearLayout.HORIZONTAL);
+        headerRow.setGravity(Gravity.CENTER_VERTICAL);
+        final TextView headerPill = new TextView(activity);
+        headerPill.setText(zh ? "聊天 ▾" : "Chats ▾");
+        headerPill.setTextSize(13.5f);
+        headerPill.setTypeface(Typeface.DEFAULT_BOLD);
+        headerPill.setPadding(BlurBars.dp(activity, 12f), BlurBars.dp(activity, 5f), BlurBars.dp(activity, 12f), BlurBars.dp(activity, 5f));
+        headerRow.addView(headerPill);
+
+        final TextView filterChip = new TextView(activity);
+        filterChip.setText(zh ? "全部" : "All");
+        filterChip.setTextSize(12f);
+        filterChip.setPadding(BlurBars.dp(activity, 10f), BlurBars.dp(activity, 4f), BlurBars.dp(activity, 10f), BlurBars.dp(activity, 4f));
+        LinearLayout.LayoutParams fcLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        fcLp.setMarginStart(BlurBars.dp(activity, 8f));
+        headerRow.addView(filterChip, fcLp);
+
+        View headerSpacer = new View(activity);
+        headerRow.addView(headerSpacer, new LinearLayout.LayoutParams(0, 1, 1f));
+
+        final TextView badgeTv = new TextView(activity);
+        badgeTv.setText("999+");
+        badgeTv.setTextSize(11.5f);
+        badgeTv.setTypeface(Typeface.DEFAULT_BOLD);
+        badgeTv.setPadding(BlurBars.dp(activity, 9f), BlurBars.dp(activity, 3f), BlurBars.dp(activity, 9f), BlurBars.dp(activity, 3f));
+        headerRow.addView(badgeTv);
+
+        LinearLayout.LayoutParams hrLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hrLp.bottomMargin = BlurBars.dp(activity, 10f);
+        previewBox.addView(headerRow, hrLp);
+
+        final TextView recvPreview = new TextView(activity);
+        recvPreview.setText(zh ? "對方的訊息氣泡" : "Received message");
+        recvPreview.setTextSize(13f);
+        recvPreview.setPadding(BlurBars.dp(activity, 12f), BlurBars.dp(activity, 7f), BlurBars.dp(activity, 12f), BlurBars.dp(activity, 7f));
+        LinearLayout.LayoutParams recvLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        recvLp.gravity = Gravity.START;
+        recvLp.bottomMargin = BlurBars.dp(activity, 6f);
+        previewBox.addView(recvPreview, recvLp);
+
+        final TextView sendPreview = new TextView(activity);
+        sendPreview.setText(zh ? "我的 Material You 氣泡" : "My Material You bubble");
+        sendPreview.setTextSize(13f);
+        sendPreview.setPadding(BlurBars.dp(activity, 12f), BlurBars.dp(activity, 7f), BlurBars.dp(activity, 12f), BlurBars.dp(activity, 7f));
+        LinearLayout.LayoutParams sendLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sendLp.gravity = Gravity.END;
+        sendLp.bottomMargin = BlurBars.dp(activity, 10f);
+        previewBox.addView(sendPreview, sendLp);
+
+        // Mini floating pill bottom bar preview
+        final LinearLayout miniNavPill = new LinearLayout(activity);
+        miniNavPill.setOrientation(LinearLayout.HORIZONTAL);
+        miniNavPill.setGravity(Gravity.CENTER_VERTICAL);
+        int navPad = BlurBars.dp(activity, 4f);
+        miniNavPill.setPadding(navPad, navPad, navPad, navPad);
+        final TextView navTabHome = new TextView(activity);
+        final TextView navTabChat = new TextView(activity);
+        final TextView navTabWallet = new TextView(activity);
+        String[] navNames = zh ? new String[]{"主頁", "聊天", "錢包"} : new String[]{"Home", "Chats", "Wallet"};
+        TextView[] navTabs = {navTabHome, navTabChat, navTabWallet};
+        for (int i = 0; i < navTabs.length; i++) {
+            navTabs[i].setText(navNames[i]);
+            navTabs[i].setTextSize(12f);
+            navTabs[i].setGravity(Gravity.CENTER);
+            navTabs[i].setPadding(0, BlurBars.dp(activity, 6f), 0, BlurBars.dp(activity, 6f));
+            if (i == 1) {
+                navTabs[i].setTypeface(Typeface.DEFAULT_BOLD);
+            }
+            miniNavPill.addView(navTabs[i], new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        }
+        LinearLayout.LayoutParams mnpLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        mnpLp.setMarginStart(BlurBars.dp(activity, 14f));
+        mnpLp.setMarginEnd(BlurBars.dp(activity, 14f));
+        previewBox.addView(miniNavPill, mnpLp);
+
+        LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        previewLp.bottomMargin = BlurBars.dp(activity, 14f);
+        root.addView(previewBox, previewLp);
+
+        // Source mode chips: System Wallpaper vs Custom Palette
+        final TextView modeLabel = sectionLabel(activity, zh ? "調色盤來源" : "Palette source", accentColor(activity));
+        root.addView(modeLabel);
+
+        LinearLayout sourceBar = new LinearLayout(activity);
+        sourceBar.setOrientation(LinearLayout.HORIZONTAL);
+        final TextView sysChip = new TextView(activity);
+        final TextView customChip = new TextView(activity);
+        sysChip.setText(zh ? "跟隨系統桌布" : "System wallpaper");
+        customChip.setText(zh ? "自選調色盤" : "Custom palette");
+        TextView[] srcChips = {sysChip, customChip};
+        for (int i = 0; i < srcChips.length; i++) {
+            srcChips[i].setTextSize(13f);
+            srcChips[i].setGravity(Gravity.CENTER);
+            srcChips[i].setPadding(BlurBars.dp(activity, 14f), BlurBars.dp(activity, 8f), BlurBars.dp(activity, 14f), BlurBars.dp(activity, 8f));
+            PixelNativeEnhancements.enhanceInteractive(srcChips[i]);
+            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            if (i == 0) {
+                clp.setMarginEnd(BlurBars.dp(activity, 8f));
+            }
+            sourceBar.addView(srcChips[i], clp);
+        }
+        LinearLayout.LayoutParams sbLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sbLp.bottomMargin = BlurBars.dp(activity, 14f);
+        root.addView(sourceBar, sbLp);
+
+        // Curated Material You tonal preset swatches (2 x 6)
+        final TextView presetLabel = sectionLabel(activity, zh ? "精選 Material You 主題色" : "Curated Material You themes", accentColor(activity));
+        root.addView(presetLabel);
+
+        LinearLayout presetGrid = new LinearLayout(activity);
+        presetGrid.setOrientation(LinearLayout.VERTICAL);
+        final View[] presetCircles = new View[MY_SEED_PRESETS.length];
+        int cols = 6;
+        int swatchSize = BlurBars.dp(activity, 38f);
+        int swatchGap = BlurBars.dp(activity, 8f);
+        LinearLayout swatchRow = null;
+        for (int i = 0; i < MY_SEED_PRESETS.length; i++) {
+            if (i % cols == 0) {
+                swatchRow = new LinearLayout(activity);
+                swatchRow.setOrientation(LinearLayout.HORIZONTAL);
+                LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                rlp.bottomMargin = swatchGap;
+                presetGrid.addView(swatchRow, rlp);
+            }
+            View circle = new View(activity);
+            PixelNativeEnhancements.enhanceInteractive(circle);
+            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(swatchSize, swatchSize);
+            clp.setMarginEnd(swatchGap);
+            circle.setLayoutParams(clp);
+            presetCircles[i] = circle;
+            swatchRow.addView(circle);
+        }
+        LinearLayout.LayoutParams pgLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        pgLp.bottomMargin = BlurBars.dp(activity, 10f);
+        root.addView(presetGrid, pgLp);
+
+        // Smooth Hue + Chroma sliders
+        final TextView sliderLabel = sectionLabel(activity, zh ? "自由調配（色相與彩度）" : "Fine-tune hue & chroma", accentColor(activity));
+        root.addView(sliderLabel);
+
+        TextView hueTitle = new TextView(activity);
+        hueTitle.setText(zh ? "色相（彩虹色輪）" : "Hue");
+        hueTitle.setTextSize(12f);
+        hueTitle.setTextColor(dark ? 0xFFB8BDC7 : 0xFF5F6368);
+        root.addView(hueTitle);
+
+        final SeekBar hueBar = new SeekBar(activity);
+        hueBar.setMax(360);
+        hueBar.setProgress(Math.round(seedHsv[0]));
+        GradientDrawable rainbowBg = new GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{0xFFFF3B30, 0xFFFFCC00, 0xFF34C759, 0xFF00C7BE, 0xFF007AFF, 0xFFAF52DE, 0xFFFF2D55, 0xFFFF3B30}
+        );
+        rainbowBg.setCornerRadius(BlurBars.dp(activity, 999f));
+        hueBar.setBackground(rainbowBg);
+        int barPadV = BlurBars.dp(activity, 6f);
+        int barPadH = BlurBars.dp(activity, 12f);
+        hueBar.setPadding(barPadH, barPadV, barPadH, barPadV);
+        LinearLayout.LayoutParams hbLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hbLp.topMargin = BlurBars.dp(activity, 4f);
+        hbLp.bottomMargin = BlurBars.dp(activity, 10f);
+        root.addView(hueBar, hbLp);
+
+        TextView chromaTitle = new TextView(activity);
+        chromaTitle.setText(zh ? "彩度（柔和粉彩 ↔ 鮮明濃郁）" : "Chroma (Soft pastel to vibrant)");
+        chromaTitle.setTextSize(12f);
+        chromaTitle.setTextColor(dark ? 0xFFB8BDC7 : 0xFF5F6368);
+        root.addView(chromaTitle);
+
+        final SeekBar chromaBar = new SeekBar(activity);
+        chromaBar.setMax(100);
+        chromaBar.setProgress(Math.round(seedHsv[1] * 100.0f));
+        final GradientDrawable chromaBg = new GradientDrawable();
+        chromaBg.setOrientation(GradientDrawable.Orientation.LEFT_RIGHT);
+        chromaBg.setCornerRadius(BlurBars.dp(activity, 999f));
+        chromaBar.setBackground(chromaBg);
+        chromaBar.setPadding(barPadH, barPadV, barPadH, barPadV);
+        LinearLayout.LayoutParams cbLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cbLp.topMargin = BlurBars.dp(activity, 4f);
+        cbLp.bottomMargin = BlurBars.dp(activity, 12f);
+        root.addView(chromaBar, cbLp);
+
+        // Optional Hex row
+        LinearLayout hexRow = new LinearLayout(activity);
+        hexRow.setOrientation(LinearLayout.HORIZONTAL);
+        hexRow.setGravity(Gravity.CENTER_VERTICAL);
+        final EditText hexInput = new EditText(activity);
+        hexInput.setHint(zh ? "色碼，例如 #6750A4" : "Hex, e.g. #6750A4");
+        hexInput.setSingleLine(true);
+        hexInput.setInputType(InputType.TYPE_CLASS_TEXT);
+        hexInput.setTextSize(13f);
+        hexRow.addView(hexInput, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        final TextView hexBtn = new TextView(activity);
+        hexBtn.setText(zh ? "套用色碼" : "Set hex");
+        hexBtn.setTextSize(13f);
+        int bp = BlurBars.dp(activity, 10f);
+        hexBtn.setPadding(bp, bp, bp, bp);
+        PixelNativeEnhancements.enhanceInteractive(hexBtn);
+        hexRow.addView(hexBtn);
+        root.addView(hexRow);
+
+        final boolean[] syncingUi = {false};
+        final long[] lastTickMs = {0L};
+
+        final Runnable refreshAll = () -> {
+            Palette previewPal = customMode[0]
+                    ? Palette.fromSeed(currentSeed[0], dark)
+                    : Palette.systemPalette(activity, dark);
+
+            previewBg.setColor(dark ? blend(0xFF15181F, previewPal.navBarBg, 0.45f) : blend(0xFFEFF3F9, previewPal.navBarBg, 0.50f));
+            previewBg.setStroke(Math.max(1, BlurBars.dp(activity, 1f)), dark ? 0x26FFFFFF : 0x18000000);
+
+            GradientDrawable hpGd = new GradientDrawable();
+            hpGd.setCornerRadius(BlurBars.dp(activity, 999f));
+            hpGd.setColor(previewPal.pillBg);
+            headerPill.setBackground(hpGd);
+            headerPill.setTextColor(previewPal.onPill);
+
+            GradientDrawable fcGd = new GradientDrawable();
+            fcGd.setCornerRadius(BlurBars.dp(activity, 999f));
+            fcGd.setColor(previewPal.pillBg);
+            filterChip.setBackground(fcGd);
+            filterChip.setTextColor(previewPal.onPill);
+
+            GradientDrawable bgGd = new GradientDrawable();
+            bgGd.setCornerRadius(BlurBars.dp(activity, 999f));
+            bgGd.setColor(previewPal.badgeBg);
+            badgeTv.setBackground(bgGd);
+            badgeTv.setTextColor(previewPal.onBadge);
+
+            stylePreviewBubble(recvPreview, previewPal.receiveBubble, BlurBars.dp(activity, 14f));
+            stylePreviewBubble(sendPreview, previewPal.sendBubble, BlurBars.dp(activity, 14f));
+
+            GradientDrawable navOuterGd = new GradientDrawable();
+            navOuterGd.setCornerRadius(BlurBars.dp(activity, 999f));
+            int outerGlass = dark
+                    ? blend(0xFF1A1D24, previewPal.navBarBg, 0.55f)
+                    : blend(0xFFFFFFFF, previewPal.navBarBg, 0.36f);
+            navOuterGd.setColor(outerGlass);
+            navOuterGd.setStroke(Math.max(1, BlurBars.dp(activity, 1f)), dark ? 0x38FFFFFF : 0x55FFFFFF);
+            miniNavPill.setBackground(navOuterGd);
+
+            GradientDrawable navActGd = new GradientDrawable();
+            navActGd.setCornerRadius(BlurBars.dp(activity, 999f));
+            int activeCap = dark
+                    ? blend(outerGlass, previewPal.pillBg, 0.28f)
+                    : blend(0xFFFFFFFF, previewPal.pillBg, 0.20f);
+            navActGd.setColor(activeCap);
+            navTabChat.setBackground(navActGd);
+            navTabChat.setTextColor(previewPal.navSelected);
+            navTabHome.setTextColor(previewPal.navUnselected);
+            navTabWallet.setTextColor(previewPal.navUnselected);
+
+            modeLabel.setTextColor(previewPal.accent);
+            presetLabel.setTextColor(previewPal.accent);
+            sliderLabel.setTextColor(previewPal.accent);
+            hexBtn.setTextColor(previewPal.accent);
+
+            float chipRadius = BlurBars.dp(activity, 999f);
+            int chipStroke = Math.max(1, BlurBars.dp(activity, 1f));
+            boolean[] chipStates = {!customMode[0], customMode[0]};
+            for (int i = 0; i < srcChips.length; i++) {
+                GradientDrawable gd = new GradientDrawable();
+                gd.setCornerRadius(chipRadius);
+                if (chipStates[i]) {
+                    gd.setColor(previewPal.pillBg);
+                    srcChips[i].setTextColor(previewPal.onPill);
+                } else {
+                    gd.setColor(dark ? 0xFF252830 : 0xFFF1F4F9);
+                    gd.setStroke(chipStroke, dark ? 0x33FFFFFF : 0x22000000);
+                    srcChips[i].setTextColor(dark ? 0xFFE2E5EC : 0xFF33363C);
+                }
+                srcChips[i].setBackground(gd);
+            }
+
+            int strokeSelected = BlurBars.dp(activity, 3.0f);
+            int strokeNormal = Math.max(1, BlurBars.dp(activity, 1.0f));
+            for (int i = 0; i < MY_SEED_PRESETS.length; i++) {
+                int c = MY_SEED_PRESETS[i];
+                boolean sel = customMode[0] && ((currentSeed[0] & 0xFFFFFF) == (c & 0xFFFFFF));
+                GradientDrawable gd = new GradientDrawable();
+                gd.setShape(GradientDrawable.OVAL);
+                gd.setColor(c);
+                gd.setStroke(
+                        sel ? strokeSelected : strokeNormal,
+                        sel ? (dark ? 0xFFFFFFFF : 0xFF111111) : 0x44888888
+                );
+                presetCircles[i].setBackground(gd);
+            }
+
+            int pureHueColor = Color.HSVToColor(new float[]{seedHsv[0], 0.90f, 0.80f}) | 0xFF000000;
+            chromaBg.setColors(new int[]{0xFF80848A, pureHueColor});
+            ColorStateList thumbTint = ColorStateList.valueOf(currentSeed[0]);
+            hueBar.setThumbTintList(ColorStateList.valueOf(pureHueColor));
+            chromaBar.setThumbTintList(thumbTint);
+
+            if (!syncingUi[0]) {
+                syncingUi[0] = true;
+                hueBar.setProgress(Math.round(seedHsv[0]));
+                chromaBar.setProgress(Math.round(seedHsv[1] * 100.0f));
+                hexInput.setText(String.format(Locale.US, "#%06X", 0xFFFFFF & currentSeed[0]));
+                syncingUi[0] = false;
+            }
+        };
+
+        sysChip.setOnClickListener(v -> {
+            PixelNativeEnhancements.tick(v);
+            customMode[0] = false;
+            refreshAll.run();
+        });
+        customChip.setOnClickListener(v -> {
+            PixelNativeEnhancements.tick(v);
+            customMode[0] = true;
+            refreshAll.run();
+        });
+
+        for (int i = 0; i < MY_SEED_PRESETS.length; i++) {
+            final int preset = MY_SEED_PRESETS[i];
+            presetCircles[i].setOnClickListener(v -> {
+                PixelNativeEnhancements.tick(v);
+                customMode[0] = true;
+                currentSeed[0] = preset | 0xFF000000;
+                Color.colorToHSV(currentSeed[0], seedHsv);
+                refreshAll.run();
+            });
+        }
+
+        SeekBar.OnSeekBarChangeListener sliderListener = new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                if (!fromUser || syncingUi[0]) {
+                    return;
+                }
+                customMode[0] = true;
+                seedHsv[0] = hueBar.getProgress();
+                seedHsv[1] = chromaBar.getProgress() / 100.0f;
+                seedHsv[2] = seedHsv[1] < 0.05f ? 0.42f : 0.72f;
+                currentSeed[0] = Color.HSVToColor(seedHsv) | 0xFF000000;
+                syncingUi[0] = true;
+                hexInput.setText(String.format(Locale.US, "#%06X", 0xFFFFFF & currentSeed[0]));
+                refreshAll.run();
+                syncingUi[0] = false;
+                long now = SystemClock.uptimeMillis();
+                if (now - lastTickMs[0] >= 45L) {
+                    lastTickMs[0] = now;
+                    PixelNativeEnhancements.tick(seekBar);
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                PixelNativeEnhancements.tick(seekBar);
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+            }
+        };
+        hueBar.setOnSeekBarChangeListener(sliderListener);
+        chromaBar.setOnSeekBarChangeListener(sliderListener);
+
+        hexBtn.setOnClickListener(v -> {
+            String raw = hexInput.getText().toString().trim();
+            if (!raw.startsWith("#")) {
+                raw = "#" + raw;
+            }
+            try {
+                int parsed = Color.parseColor(raw) | 0xFF000000;
+                customMode[0] = true;
+                currentSeed[0] = parsed;
+                Color.colorToHSV(parsed, seedHsv);
+                PixelNativeEnhancements.tick(v);
+                refreshAll.run();
+            } catch (IllegalArgumentException e) {
+                Toast.makeText(
+                        activity,
+                        zh ? "色碼格式錯誤（例如 #6750A4）" : "Invalid hex color (e.g. #6750A4)",
+                        Toast.LENGTH_SHORT
+                ).show();
+            }
+        });
+
+        refreshAll.run();
+
+        AlertDialog dialog = new AlertDialog.Builder(activity)
+                .setTitle(zh ? "Material You 自選調色盤" : "Material You color palette")
+                .setView(scroll)
+                .setPositiveButton(zh ? "套用" : "Apply", (d, w) -> {
+                    PixelNativeEnhancements.confirm(scroll);
+                    int toSave = customMode[0] ? (currentSeed[0] | 0xFF000000) : 0;
+                    LineSettings.setMaterialYouSeedColor(toSave);
+                    if (toSave != 0 && !LineSettings.materialYouTheme()) {
+                        LineSettings.set(LineSettings.MATERIAL_YOU_THEME, true);
+                    }
+                    invalidatePaletteCache();
+                    if (activity.getWindow() != null && activity.getWindow().getDecorView() != null) {
+                        activity.getWindow().getDecorView().postInvalidate();
+                    }
+                    if (onChanged != null) {
+                        onChanged.run();
+                    }
+                })
+                .setNeutralButton(zh ? "跟隨桌布" : "Wallpaper", (d, w) -> {
+                    PixelNativeEnhancements.confirm(scroll);
+                    LineSettings.setMaterialYouSeedColor(0);
+                    invalidatePaletteCache();
+                    if (activity.getWindow() != null && activity.getWindow().getDecorView() != null) {
+                        activity.getWindow().getDecorView().postInvalidate();
+                    }
+                    if (onChanged != null) {
+                        onChanged.run();
+                    }
+                })
+                .setNegativeButton(zh ? "取消" : "Cancel", null)
+                .create();
+        PixelNativeEnhancements.applyDialogBlur(dialog);
+        dialog.show();
+        PixelNativeEnhancements.constrainDialogWidth(dialog, 520.0f);
     }
 
     static boolean isLightColor(int color) {

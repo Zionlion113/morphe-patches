@@ -10,6 +10,7 @@ import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.text.util.Linkify;
@@ -318,10 +319,15 @@ final class LineSettingsScreen {
                         t("White chat header text & icons", "聊天室標題列使用白色文字與圖示"),
                         t("Keeps the chat name and right-side header icons white so they stay easy to read on any background.", "將聊天室上方對方名字與右側圖示統一改為白色，確保在各種背景上都清晰易讀。"),
                         true, null));
-                content.addView(toggle(activity, LineSettings.MATERIAL_YOU_THEME,
+                View myThemeRow = toggle(activity, LineSettings.MATERIAL_YOU_THEME,
                         t("Material You dynamic colors", "Material You 動態配色"),
-                        t("Applies your Android wallpaper palette across LINE, including chat bubbles, unread count badges, folder tabs, and settings accents. Open any chat's menu -> Settings -> Chat bubble color to customize that chat individually.", "將系統桌布的 Material You 個人調色套用到 LINE，包含聊天氣泡、未讀訊息數字膠囊、分類膠囊與設定強調色。可於聊天室右上角選單 → 設定 → 聊天氣泡顏色單獨自訂各聊天室氣泡。"),
-                        true, null));
+                        t("Applies your Android wallpaper or custom Material You palette across LINE, including chat bubbles, unread count badges, folder tabs, and settings accents. Open any chat's menu -> Settings -> Chat bubble color to customize that chat individually.", "將系統桌布或自選的 Material You 個人調色盤套用到 LINE，包含聊天氣泡、未讀訊息數字膠囊、分類膠囊與設定強調色。可於聊天室右上角選單 → 設定 → 聊天氣泡顏色單獨自訂各聊天室氣泡。"),
+                        true, () -> {
+                            MaterialYou.invalidatePaletteCache();
+                            restart.setVisibility(View.VISIBLE);
+                        });
+                content.addView(myThemeRow);
+                content.addView(materialYouPaletteRow(activity, myThemeRow, () -> restart.setVisibility(View.VISIBLE)));
                 content.addView(toggle(activity, LineSettings.CHAT_BUBBLE_WALLPAPER,
                         t("Auto-extract chat wallpaper color for bubbles", "聊天氣泡自動抓取聊天室背景主色"),
                         t("Automatically picks harmonious sent and received bubble colors from each chat room's background image. Chats with no background image fall back to Material You.", "自動從各聊天室的背景圖片擷取主色調來搭配送出與接收氣泡；無背景圖片的聊天室則自動使用系統 Material You 配色。"),
@@ -447,6 +453,61 @@ final class LineSettingsScreen {
             PixelNativeEnhancements.applyDialogBlur(dialog);
             dialog.show();
             PixelNativeEnhancements.constrainDialogWidth(dialog, 480.0f);
+        });
+        return row;
+    }
+
+    private static View materialYouPaletteRow(Activity activity, View themeToggleRow, Runnable onChanged) {
+        View row = row(activity,
+                t("Material You color palette", "Material You 自選調色盤"),
+                "",
+                true);
+        TextView desc = row.findViewById(id(activity, "setting_description", "id"));
+        TextView value = row.findViewById(id(activity, "setting_inlined_value", "id"));
+        value.setVisibility(View.VISIBLE);
+        value.setCompoundDrawablePadding(dp(activity, 6));
+        look.paint(value, look.secondary());
+
+        final Runnable refreshRow = () -> {
+            int seed = LineSettings.materialYouSeedColor();
+            if (seed == 0) {
+                desc.setText(t(
+                        "Follows your Android wallpaper colors. Tap to pick a custom Material You palette.",
+                        "目前跟隨系統桌布動態取色。點一下可自由挑選 Material You 自選調色盤。"
+                ));
+                value.setText(t("Wallpaper", "跟隨桌布"));
+            } else {
+                String hex = String.format(Locale.US, "#%06X", 0xFFFFFF & seed);
+                desc.setText(t(
+                        "Using custom Material You palette (" + hex + "). Tap to change or reset to wallpaper.",
+                        "目前套用自選 Material You 調色盤（" + hex + "）。點一下可更換顏色或改回跟隨桌布。"
+                ));
+                value.setText(t("Custom", "自選"));
+            }
+            int dotPx = dp(activity, 14);
+            GradientDrawable dot = new GradientDrawable();
+            dot.setShape(GradientDrawable.OVAL);
+            dot.setSize(dotPx, dotPx);
+            dot.setColor(MaterialYou.accentColor(activity));
+            dot.setStroke(Math.max(1, dp(activity, 1)), 0x38888888);
+            value.setCompoundDrawablesRelativeWithIntrinsicBounds(dot, null, null, null);
+        };
+        refreshRow.run();
+
+        row.setOnClickListener(v -> {
+            PixelNativeEnhancements.tick(v);
+            MaterialYou.showMaterialYouPaletteDialog(activity, () -> {
+                if (themeToggleRow != null) {
+                    CheckedTextView sw = themeToggleRow.findViewById(id(activity, "setting_switch", "id"));
+                    if (sw != null) {
+                        sw.setChecked(LineSettings.materialYouTheme());
+                    }
+                }
+                refreshRow.run();
+                if (onChanged != null) {
+                    onChanged.run();
+                }
+            });
         });
         return row;
     }
