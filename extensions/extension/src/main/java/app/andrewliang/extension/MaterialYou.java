@@ -175,10 +175,18 @@ final class MaterialYou {
     private static final Map<View, int[]> ORIG_BUBBLE_PADDING = new WeakHashMap<>();
     private static final Map<View, int[]> ORIG_BADGE_PADDING = new WeakHashMap<>();
     private static final Map<View, Integer> NAV_APPLIED = new WeakHashMap<>();
+    private static final class NavExpandState {
+        int extendedBottom;
+        int setMarginBottom = Integer.MIN_VALUE;
+    }
+
     private static final Map<View, int[]> ORIG_NAV_PADDING = new WeakHashMap<>();
     private static final Map<View, Integer> ORIG_NAV_HEIGHT = new WeakHashMap<>();
     private static final Map<View, Integer> ORIG_NAV_LIST_PAD = new WeakHashMap<>();
     private static final Map<View, Integer> ORIG_NAV_FRAG_MARGIN = new WeakHashMap<>();
+    private static final Map<View, NavExpandState> NAV_EXPAND_STATES = new WeakHashMap<>();
+    private static final Map<View, Integer> ORIG_NAV_CONTAINER_PAD_BOT = new WeakHashMap<>();
+    private static final Map<View, Drawable> ORIG_NAV_CLEARED_BG = new WeakHashMap<>();
     private static final Map<View, Float> ORIG_NAV_SIBLING_ALPHA = new WeakHashMap<>();
     private static final Map<View, Boolean> CONTENT_BG_APPLIED = new WeakHashMap<>();
     private static final Map<View, WeakReference<View>> NAV_SCROLL_HOST = new WeakHashMap<>();
@@ -903,8 +911,8 @@ final class MaterialYou {
             return;
         }
         try {
-            if (window.getNavigationBarColor() != pageBgColor) {
-                window.setNavigationBarColor(pageBgColor);
+            if (window.getNavigationBarColor() != Color.TRANSPARENT) {
+                window.setNavigationBarColor(Color.TRANSPARENT);
             }
             if (Build.VERSION.SDK_INT >= 29) {
                 window.setNavigationBarContrastEnforced(false);
@@ -949,14 +957,10 @@ final class MaterialYou {
         Palette palette = Palette.of(ctx);
 
         List<View> visibleTabs = new ArrayList<>(6);
-        boolean chatTabSelected = false;
         for (String tabName : BNB_TABS) {
             View tab = BlurBars.find(decorView, tabName);
             if (tab != null && tab.getVisibility() == View.VISIBLE) {
                 visibleTabs.add(tab);
-                if ("bnb_chat".equals(tabName) && isTabSelected(tab)) {
-                    chatTabSelected = true;
-                }
             }
         }
 
@@ -968,11 +972,11 @@ final class MaterialYou {
             applyFloatingPillNavBar(
                     decorView, ctx, bnbBg, sysNavBg, tabsParent, pillHost, visibleTabs, palette, styleNavBar
             );
-            extendChatListBehindPill(decorView, ctx, pillHost, true, chatTabSelected);
+            extendMainContentBehindPill(decorView, ctx, pillHost, bnbBg, sysNavBg, true);
             ensureNavScrollBlurObserver(decorView, pillHost);
         } else {
-            restoreNonPillNavBar(decorView, bnbBg, tabsParent, visibleTabs);
-            extendChatListBehindPill(decorView, ctx, pillHost, false, false);
+            restoreNonPillNavBar(decorView, bnbBg, sysNavBg, tabsParent, visibleTabs);
+            extendMainContentBehindPill(decorView, ctx, pillHost, bnbBg, sysNavBg, false);
             if (styleNavBar) {
                 Drawable bg = bnbBg.getBackground();
                 if (bg != null && !(bg instanceof ColorDrawable)) {
@@ -1140,6 +1144,68 @@ final class MaterialYou {
         return vg;
     }
 
+    private static void clearNavWrapperBackground(View v) {
+        if (v == null) {
+            return;
+        }
+        Drawable bg = v.getBackground();
+        if (bg != null && !(bg instanceof FloatingNavPillDrawable)) {
+            if (!ORIG_NAV_CLEARED_BG.containsKey(v)) {
+                ORIG_NAV_CLEARED_BG.put(v, bg);
+            }
+            v.setBackground(null);
+        }
+    }
+
+    private static ViewGroup clearBottomBarWrapperChain(
+            View startView,
+            View pillHost,
+            List<View> visibleTabs,
+            int maxBarWrapperH,
+            int maxDividerH
+    ) {
+        if (startView == null) {
+            return null;
+        }
+        ViewParent curParent = startView.getParent();
+        int depth = 0;
+        while (curParent instanceof ViewGroup && depth < 4) {
+            ViewGroup vg = (ViewGroup) curParent;
+            if (vg.getHeight() <= 0 || vg.getHeight() > maxBarWrapperH) {
+                return vg;
+            }
+            vg.setClipChildren(false);
+            vg.setClipToPadding(false);
+            vg.setClipToOutline(false);
+            if (vg != pillHost) {
+                clearNavWrapperBackground(vg);
+            }
+            int childCount = vg.getChildCount();
+            for (int i = 0; i < childCount; i++) {
+                View child = vg.getChildAt(i);
+                if (child == null
+                        || child == pillHost
+                        || BlurBars.isSelfOrAncestor(child, pillHost)
+                        || isAnyTab(child, visibleTabs)) {
+                    continue;
+                }
+                clearNavWrapperBackground(child);
+                if (!(child instanceof ViewGroup)
+                        && child.getHeight() > 0
+                        && child.getHeight() <= maxDividerH
+                        && child.getAlpha() > 0f) {
+                    if (!ORIG_NAV_SIBLING_ALPHA.containsKey(child)) {
+                        ORIG_NAV_SIBLING_ALPHA.put(child, child.getAlpha());
+                    }
+                    child.setAlpha(0f);
+                }
+            }
+            curParent = vg.getParent();
+            depth++;
+        }
+        return curParent instanceof ViewGroup ? (ViewGroup) curParent : null;
+    }
+
     private static void applyFloatingPillNavBar(
             View decorView,
             Context ctx,
@@ -1154,7 +1220,7 @@ final class MaterialYou {
         int pageBgColor = resolvePageBackgroundColor(ctx, palette);
         syncSystemNavigationBarBackdrop(decorView, bnbBg, pageBgColor);
 
-        // Paint contentRoot with pageBgColor so DecorView's #000000 background never shows around the pill.
+        // Paint contentRoot at the back of the hierarchy so DecorView's #000000 never shows on non-scrolling screens.
         View contentRoot = decorView.findViewById(android.R.id.content);
         if (contentRoot != null) {
             Drawable cBg = contentRoot.getBackground();
@@ -1183,26 +1249,23 @@ final class MaterialYou {
             anc = avg.getParent();
         }
 
-        // Paint main_navigation_bar_background with pageBgColor so the gesture bar matches the screen.
+        // Keep main_navigation_bar_background transparent so page content extends behind the gesture bar.
         if (sysNavBg != null) {
-            if (sysNavBg.getVisibility() != View.VISIBLE) {
-                sysNavBg.setVisibility(View.VISIBLE);
-            }
-            if (sysNavBg.getAlpha() != 1f) {
-                sysNavBg.setAlpha(1f);
-            }
-            Drawable sBg = sysNavBg.getBackground();
-            if (!(sBg instanceof ColorDrawable) || ((ColorDrawable) sBg).getColor() != pageBgColor) {
-                sysNavBg.setBackground(new ColorDrawable(pageBgColor));
+            clearNavWrapperBackground(sysNavBg);
+            if (sysNavBg.getAlpha() > 0f) {
+                if (!ORIG_NAV_SIBLING_ALPHA.containsKey(sysNavBg)) {
+                    ORIG_NAV_SIBLING_ALPHA.put(sysNavBg, sysNavBg.getAlpha());
+                }
+                sysNavBg.setAlpha(0f);
             }
         }
 
         int pillBarHeight = BlurBars.dp(ctx, 56.0f);
         if (pillHost == tabsParent && tabsParent != bnbBg) {
-            // Set bnb_background_image alpha to 0 so LINE's rectangular bar disappears and stays reversible.
             if (bnbBg.getBackground() instanceof FloatingNavPillDrawable) {
                 bnbBg.setBackground(null);
             }
+            clearNavWrapperBackground(bnbBg);
             if (bnbBg.getAlpha() != 0f) {
                 bnbBg.setAlpha(0f);
             }
@@ -1210,7 +1273,6 @@ final class MaterialYou {
                 bnbBg.setTranslationY(0f);
             }
         } else {
-            // If tabs do not share a row, give bnbBg a 56dp height because WRAP_CONTENT collapses to 0px.
             if (bnbBg.getAlpha() != 1f) {
                 bnbBg.setAlpha(1f);
             }
@@ -1239,49 +1301,44 @@ final class MaterialYou {
             pillHost.setTranslationZ(pillZ);
         }
 
-        // Disable clipping and hide rectangular backgrounds or divider views inside the bottom bar wrapper.
-        int maxBarWrapperH = BlurBars.dp(ctx, 140.0f);
-        int maxDividerH = BlurBars.dp(ctx, 84.0f);
+        // Clear rectangular backgrounds along all bottom-bar branches (pillHost, bnbBg, sysNavBg) and siblings.
+        int maxBarWrapperH = BlurBars.dp(ctx, 165.0f);
+        int maxDividerH = BlurBars.dp(ctx, 110.0f);
         if (pillHost instanceof ViewGroup) {
             ViewGroup hostVg = (ViewGroup) pillHost;
             hostVg.setClipChildren(false);
             hostVg.setClipToPadding(false);
+            hostVg.setClipToOutline(false);
         }
-        ViewParent curParent = pillHost.getParent();
-        int depth = 0;
-        while (curParent instanceof ViewGroup && depth < 3) {
-            ViewGroup vg = (ViewGroup) curParent;
-            if (vg.getHeight() <= 0 || vg.getHeight() > maxBarWrapperH) {
-                break;
-            }
-            vg.setClipChildren(false);
-            vg.setClipToPadding(false);
-            if (vg != pillHost && vg != sysNavBg) {
-                Drawable vgBg = vg.getBackground();
-                if (vgBg != null && !(vgBg instanceof FloatingNavPillDrawable)) {
-                    vg.setBackground(null);
-                }
-            }
-            int childCount = vg.getChildCount();
-            for (int i = 0; i < childCount; i++) {
-                View child = vg.getChildAt(i);
-                if (child == null
-                        || child == pillHost
-                        || child == bnbBg
-                        || child == sysNavBg
-                        || child instanceof ViewGroup
-                        || isAnyTab(child, visibleTabs)) {
+        ViewGroup rootA = clearBottomBarWrapperChain(pillHost, pillHost, visibleTabs, maxBarWrapperH, maxDividerH);
+        ViewGroup rootB = clearBottomBarWrapperChain(bnbBg, pillHost, visibleTabs, maxBarWrapperH, maxDividerH);
+        clearBottomBarWrapperChain(sysNavBg, pillHost, visibleTabs, maxBarWrapperH, maxDividerH);
+
+        ViewGroup barParentRoot = rootA != null ? rootA : rootB;
+        if (barParentRoot != null && barParentRoot.getHeight() > maxBarWrapperH) {
+            barParentRoot.setClipChildren(false);
+            barParentRoot.setClipToPadding(false);
+            int rH = barParentRoot.getHeight();
+            int count = barParentRoot.getChildCount();
+            for (int i = 0; i < count; i++) {
+                View sib = barParentRoot.getChildAt(i);
+                if (sib == null
+                        || sib == pillHost
+                        || BlurBars.isSelfOrAncestor(sib, pillHost)
+                        || isAnyTab(sib, visibleTabs)) {
                     continue;
                 }
-                if (child.getHeight() > 0 && child.getHeight() <= maxDividerH && child.getAlpha() > 0f) {
-                    if (!ORIG_NAV_SIBLING_ALPHA.containsKey(child)) {
-                        ORIG_NAV_SIBLING_ALPHA.put(child, child.getAlpha());
+                int sH = sib.getHeight();
+                if (sH > 0 && sH <= maxBarWrapperH && sib.getBottom() >= rH - maxBarWrapperH) {
+                    clearNavWrapperBackground(sib);
+                    if (!(sib instanceof ViewGroup) && sib.getAlpha() > 0f) {
+                        if (!ORIG_NAV_SIBLING_ALPHA.containsKey(sib)) {
+                            ORIG_NAV_SIBLING_ALPHA.put(sib, sib.getAlpha());
+                        }
+                        sib.setAlpha(0f);
                     }
-                    child.setAlpha(0f);
                 }
             }
-            curParent = vg.getParent();
-            depth++;
         }
 
         int totalWidth = decorView.getWidth() > 0
@@ -1335,12 +1392,13 @@ final class MaterialYou {
             baseSurface = palette.dark ? 0xFF21242B : 0xFFE8ECF2;
             rimAccent = palette.dark ? 0xFFFFFFFF : 0xFF5A6270;
         }
-        pillDrawable.update(visibleTabs, baseSurface, rimAccent, palette.dark, sideInset);
+        pillDrawable.update(visibleTabs, bnbBg, sysNavBg, baseSurface, rimAccent, palette.dark, sideInset);
     }
 
     private static void restoreNonPillNavBar(
             View decorView,
             View bnbBg,
+            View sysNavBg,
             ViewGroup tabsParent,
             List<View> visibleTabs
     ) {
@@ -1368,6 +1426,9 @@ final class MaterialYou {
         if (bnbBg.getTranslationZ() != 0f) {
             bnbBg.setTranslationZ(0f);
         }
+        if (sysNavBg != null && sysNavBg.getAlpha() != 1f) {
+            sysNavBg.setAlpha(1f);
+        }
         if (tabsParent != null) {
             if (tabsParent.getBackground() instanceof FloatingNavPillDrawable) {
                 tabsParent.setBackground(null);
@@ -1388,6 +1449,15 @@ final class MaterialYou {
                 tabsParent.setTranslationZ(0f);
             }
         }
+        for (Map.Entry<View, Drawable> entry : ORIG_NAV_CLEARED_BG.entrySet()) {
+            View v = entry.getKey();
+            Drawable d = entry.getValue();
+            if (v != null && d != null && v.getBackground() == null) {
+                v.setBackground(d);
+            }
+        }
+        ORIG_NAV_CLEARED_BG.clear();
+
         for (Map.Entry<View, Float> entry : ORIG_NAV_SIBLING_ALPHA.entrySet()) {
             View sib = entry.getKey();
             Float alpha = entry.getValue();
@@ -1438,59 +1508,142 @@ final class MaterialYou {
     private static final int[] NAV_LOC_A = new int[2];
     private static final int[] NAV_LOC_B = new int[2];
 
-    private static void extendChatListBehindPill(
+    private static boolean isScrollableContainer(View v) {
+        if (v instanceof ScrollView || v instanceof HorizontalScrollView) {
+            return true;
+        }
+        String cn = v.getClass().getName();
+        return cn.contains("RecyclerView")
+                || cn.contains("NestedScrollView")
+                || cn.contains("ListView")
+                || cn.contains("WebView");
+    }
+
+    private static void stripContainerBottomInsetPadding(View v, int decorBottom, int minInsetPx) {
+        if (!(v instanceof ViewGroup) || isScrollableContainer(v)) {
+            return;
+        }
+        v.getLocationInWindow(NAV_LOC_A);
+        int vBot = NAV_LOC_A[1] + v.getHeight();
+        int padB = v.getPaddingBottom();
+        if (vBot >= decorBottom - minInsetPx && (padB >= minInsetPx || ORIG_NAV_CONTAINER_PAD_BOT.containsKey(v))) {
+            if (!ORIG_NAV_CONTAINER_PAD_BOT.containsKey(v)) {
+                ORIG_NAV_CONTAINER_PAD_BOT.put(v, padB);
+            }
+            if (padB != 0) {
+                v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), 0);
+            }
+        }
+    }
+
+    private static void expandViewToDecorBottom(View target, int decorBottom) {
+        if (target == null || target.getHeight() <= 0 || target.isLayoutRequested()) {
+            return;
+        }
+        if (!(target.getLayoutParams() instanceof ViewGroup.MarginLayoutParams)) {
+            return;
+        }
+        ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) target.getLayoutParams();
+        NavExpandState st = NAV_EXPAND_STATES.get(target);
+        if (st == null) {
+            st = new NavExpandState();
+            NAV_EXPAND_STATES.put(target, st);
+        }
+        target.getLocationInWindow(NAV_LOC_A);
+        int naturalBottom = (NAV_LOC_A[1] + target.getHeight()) - st.extendedBottom;
+        int needed = naturalBottom < decorBottom ? (decorBottom - naturalBottom) : 0;
+        int baseMargin = (mlp.bottomMargin == st.setMarginBottom)
+                ? (mlp.bottomMargin + st.extendedBottom)
+                : mlp.bottomMargin;
+        int nextMargin = baseMargin - needed;
+        if (mlp.bottomMargin != nextMargin) {
+            mlp.bottomMargin = nextMargin;
+            target.setLayoutParams(mlp);
+        }
+        st.setMarginBottom = nextMargin;
+        st.extendedBottom = needed;
+    }
+
+    private static View findMainRootAboveBar(View anchor, int minFullScreenH) {
+        View cur = anchor;
+        while (cur != null && cur.getParent() instanceof ViewGroup) {
+            ViewGroup p = (ViewGroup) cur.getParent();
+            if (p.getHeight() >= minFullScreenH) {
+                return p;
+            }
+            cur = p;
+        }
+        return null;
+    }
+
+    private static View findInnerExpandableTarget(View listGroup, View stopAt) {
+        View cur = listGroup;
+        while (cur != null && cur != stopAt && cur.getParent() instanceof ViewGroup) {
+            ViewGroup parent = (ViewGroup) cur.getParent();
+            String parentClass = parent.getClass().getName();
+            boolean unsupportedParent = parent instanceof LinearLayout
+                    || parentClass.contains("ViewPager")
+                    || parentClass.contains("RecyclerView");
+            if (!unsupportedParent && cur.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+                return cur;
+            }
+            if (parent == stopAt) {
+                break;
+            }
+            cur = parent;
+        }
+        return null;
+    }
+
+    private static void extendMainContentBehindPill(
             View decorView,
             Context ctx,
             View pillHost,
-            boolean pillActive,
-            boolean chatTabSelected
+            View bnbBg,
+            View sysNavBg,
+            boolean pillActive
     ) {
-        int rvId = BlurBars.id(ctx, "chat_list_recycler_view");
-        if (rvId == 0) {
-            return;
-        }
-        View singleList = decorView.findViewById(rvId);
-        if (!(singleList instanceof ViewGroup)) {
-            return;
-        }
-        ViewGroup listGroup = (ViewGroup) singleList;
-        Integer origPadBottom = ORIG_NAV_LIST_PAD.get(listGroup);
-
-        View chatsFragRoot = findChatsExpandableTarget(listGroup, pillHost);
-
         if (!pillActive) {
-            if (origPadBottom != null) {
-                listGroup.setPadding(
-                        listGroup.getPaddingLeft(),
-                        listGroup.getPaddingTop(),
-                        listGroup.getPaddingRight(),
-                        origPadBottom
-                );
-                ORIG_NAV_LIST_PAD.remove(listGroup);
-            }
-            if (chatsFragRoot != null) {
-                Integer origMargin = ORIG_NAV_FRAG_MARGIN.remove(chatsFragRoot);
-                if (origMargin != null && chatsFragRoot.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
-                    ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) chatsFragRoot.getLayoutParams();
-                    mlp.bottomMargin = origMargin;
-                    chatsFragRoot.setLayoutParams(mlp);
+            for (Map.Entry<View, Integer> e : ORIG_NAV_LIST_PAD.entrySet()) {
+                View v = e.getKey();
+                Integer p = e.getValue();
+                if (v != null && p != null) {
+                    v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), p);
                 }
             }
+            ORIG_NAV_LIST_PAD.clear();
+
+            for (Map.Entry<View, Integer> e : ORIG_NAV_CONTAINER_PAD_BOT.entrySet()) {
+                View v = e.getKey();
+                Integer p = e.getValue();
+                if (v != null && p != null) {
+                    v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), p);
+                }
+            }
+            ORIG_NAV_CONTAINER_PAD_BOT.clear();
+
+            for (Map.Entry<View, NavExpandState> e : NAV_EXPAND_STATES.entrySet()) {
+                View v = e.getKey();
+                NavExpandState st = e.getValue();
+                if (v != null && st != null && v.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+                    ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) v.getLayoutParams();
+                    if (mlp.bottomMargin == st.setMarginBottom) {
+                        mlp.bottomMargin = mlp.bottomMargin + st.extendedBottom;
+                        v.setLayoutParams(mlp);
+                    }
+                }
+            }
+            NAV_EXPAND_STATES.clear();
             return;
         }
 
-        if (!chatTabSelected || !listGroup.isAttachedToWindow() || !listGroup.isShown() || pillHost.getHeight() <= 0) {
+        int decorH = decorView.getHeight();
+        if (decorH <= 0 || pillHost.getHeight() <= 0) {
             return;
         }
-
-        if (origPadBottom == null) {
-            origPadBottom = listGroup.getPaddingBottom();
-            ORIG_NAV_LIST_PAD.put(listGroup, origPadBottom);
-        }
-
         decorView.getLocationInWindow(NAV_LOC_A);
         pillHost.getLocationInWindow(NAV_LOC_B);
-        int decorBottom = NAV_LOC_A[1] + decorView.getHeight();
+        int decorBottom = NAV_LOC_A[1] + decorH;
         int pillTopWinY = NAV_LOC_B[1];
         if (pillHost.getBackground() instanceof FloatingNavPillDrawable) {
             float drawnTop = ((FloatingNavPillDrawable) pillHost.getBackground()).lastPillTop;
@@ -1498,74 +1651,95 @@ final class MaterialYou {
                 pillTopWinY = NAV_LOC_B[1] + Math.round(drawnTop);
             }
         }
-        int hostRestTop = NAV_LOC_B[1] - Math.round(pillHost.getTranslationY());
-        int desiredOverlap = Math.max(0, decorBottom - hostRestTop);
 
-        ViewParent p = listGroup.getParent();
-        while (p instanceof ViewGroup) {
-            ViewGroup vg = (ViewGroup) p;
-            if (BlurBars.isSelfOrAncestor(vg, pillHost)) {
-                break;
-            }
-            vg.setClipChildren(false);
-            vg.setClipToPadding(false);
-            vg.setClipToOutline(false);
-            p = vg.getParent();
-        }
-        listGroup.setClipToPadding(false);
+        int minInsetPx = BlurBars.dp(ctx, 32.0f);
+        int minFullH = Math.round(decorH * 0.55f);
+        View mainRootView = findMainRootAboveBar(bnbBg != null ? bnbBg : pillHost, minFullH);
+        View mainContentBranch = null;
+        if (mainRootView instanceof ViewGroup) {
+            ViewGroup mainRoot = (ViewGroup) mainRootView;
+            mainRoot.setClipChildren(false);
+            mainRoot.setClipToPadding(false);
+            stripContainerBottomInsetPadding(mainRoot, decorBottom, minInsetPx);
 
-        if (chatsFragRoot != null
-                && desiredOverlap > 0
-                && chatsFragRoot.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
-            ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) chatsFragRoot.getLayoutParams();
-            if (!ORIG_NAV_FRAG_MARGIN.containsKey(chatsFragRoot)) {
-                ORIG_NAV_FRAG_MARGIN.put(chatsFragRoot, mlp.bottomMargin);
+            int bestH = Math.round(decorH * 0.40f);
+            int count = mainRoot.getChildCount();
+            for (int i = 0; i < count; i++) {
+                View c = mainRoot.getChildAt(i);
+                if (c == null
+                        || c.getVisibility() != View.VISIBLE
+                        || BlurBars.isSelfOrAncestor(c, pillHost)
+                        || (bnbBg != null && BlurBars.isSelfOrAncestor(c, bnbBg))
+                        || (sysNavBg != null && BlurBars.isSelfOrAncestor(c, sysNavBg))) {
+                    continue;
+                }
+                if (c.getHeight() > bestH) {
+                    bestH = c.getHeight();
+                    mainContentBranch = c;
+                }
             }
-            int targetMargin = -desiredOverlap;
-            if (mlp.bottomMargin != targetMargin) {
-                mlp.bottomMargin = targetMargin;
-                chatsFragRoot.setLayoutParams(mlp);
+            if (mainContentBranch != null) {
+                if (mainContentBranch instanceof ViewGroup) {
+                    ViewGroup mcv = (ViewGroup) mainContentBranch;
+                    mcv.setClipChildren(false);
+                    mcv.setClipToPadding(false);
+                    mcv.setClipToOutline(false);
+                }
+                stripContainerBottomInsetPadding(mainContentBranch, decorBottom, minInsetPx);
+                if (!(mainRoot instanceof LinearLayout)) {
+                    expandViewToDecorBottom(mainContentBranch, decorBottom);
+                }
             }
         }
 
-        listGroup.getLocationInWindow(NAV_LOC_A);
-        int listBottom = NAV_LOC_A[1] + listGroup.getHeight();
-        int actualOverlap = Math.max(0, listBottom - pillTopWinY);
-        int extraSafePad = BlurBars.dp(ctx, 8.0f);
-        int targetPadBottom = origPadBottom + (actualOverlap > 0 ? actualOverlap + extraSafePad : 0);
-        if (listGroup.getPaddingBottom() != targetPadBottom) {
-            listGroup.setPadding(
-                    listGroup.getPaddingLeft(),
-                    listGroup.getPaddingTop(),
-                    listGroup.getPaddingRight(),
-                    targetPadBottom
-            );
-        }
-    }
+        int rvId = BlurBars.id(ctx, "chat_list_recycler_view");
+        View singleList = rvId != 0 ? decorView.findViewById(rvId) : null;
+        if (singleList instanceof ViewGroup && singleList.isAttachedToWindow() && singleList.isShown()) {
+            ViewGroup listGroup = (ViewGroup) singleList;
+            Integer origPadBottom = ORIG_NAV_LIST_PAD.get(listGroup);
+            if (origPadBottom == null) {
+                origPadBottom = listGroup.getPaddingBottom();
+                ORIG_NAV_LIST_PAD.put(listGroup, origPadBottom);
+            }
 
-    private static View findChatsExpandableTarget(View listGroup, View pillHost) {
-        View candidate = null;
-        View cur = listGroup;
-        while (cur.getParent() instanceof ViewGroup) {
-            ViewGroup parent = (ViewGroup) cur.getParent();
-            if (BlurBars.isSelfOrAncestor(parent, pillHost)) {
-                break;
+            ViewParent p = listGroup.getParent();
+            while (p instanceof ViewGroup && p != decorView) {
+                ViewGroup vg = (ViewGroup) p;
+                vg.setClipChildren(false);
+                vg.setClipToPadding(false);
+                vg.setClipToOutline(false);
+                stripContainerBottomInsetPadding(vg, decorBottom, minInsetPx);
+                if (vg == mainRootView) {
+                    break;
+                }
+                p = vg.getParent();
             }
-            String parentClass = parent.getClass().getName();
-            boolean isPagerOrConstraint = parentClass.contains("ViewPager")
-                    || parentClass.contains("RecyclerView")
-                    || parentClass.contains("ConstraintLayout");
-            if (!isPagerOrConstraint && cur.getLayoutParams() instanceof ViewGroup.MarginLayoutParams && (
-                    parent instanceof FrameLayout
-                            || parent instanceof RelativeLayout
-                            || parent instanceof LinearLayout
-                            || parentClass.contains("CoordinatorLayout")
-            )) {
-                candidate = cur;
+            listGroup.setClipToPadding(false);
+
+            listGroup.getLocationInWindow(NAV_LOC_A);
+            int listBottom = NAV_LOC_A[1] + listGroup.getHeight();
+            View stopAt = mainContentBranch != null ? mainContentBranch : mainRootView;
+            View innerTarget = findInnerExpandableTarget(listGroup, stopAt);
+            if (innerTarget != null
+                    && (mainContentBranch == null || !mainContentBranch.isLayoutRequested())
+                    && (NAV_EXPAND_STATES.containsKey(innerTarget) || listBottom < decorBottom - BlurBars.dp(ctx, 6.0f))) {
+                expandViewToDecorBottom(innerTarget, decorBottom);
+                listGroup.getLocationInWindow(NAV_LOC_A);
+                listBottom = NAV_LOC_A[1] + listGroup.getHeight();
             }
-            cur = parent;
+
+            int actualOverlap = Math.max(0, listBottom - pillTopWinY);
+            int extraSafePad = BlurBars.dp(ctx, 12.0f);
+            int targetPadBottom = origPadBottom + (actualOverlap > 0 ? actualOverlap + extraSafePad : 0);
+            if (listGroup.getPaddingBottom() != targetPadBottom) {
+                listGroup.setPadding(
+                        listGroup.getPaddingLeft(),
+                        listGroup.getPaddingTop(),
+                        listGroup.getPaddingRight(),
+                        targetPadBottom
+                );
+            }
         }
-        return candidate;
     }
 
     /**
@@ -1774,6 +1948,8 @@ final class MaterialYou {
         private final float[] tabTopBot = new float[2];
 
         private Object gpu;
+        private WeakReference<View> bnbBgRef;
+        private WeakReference<View> sysNavBgRef;
         private int surfaceRgb;
         private int rimAccentRgb;
         private boolean dark;
@@ -1796,7 +1972,21 @@ final class MaterialYou {
             this.rimPaint.setStrokeWidth(Math.max(1.0f, this.density * 1.0f));
         }
 
-        void update(List<View> visibleTabs, int surfaceRgb, int rimAccentRgb, boolean dark, int sideInset) {
+        void update(
+                List<View> visibleTabs,
+                View bnbBg,
+                View sysNavBg,
+                int surfaceRgb,
+                int rimAccentRgb,
+                boolean dark,
+                int sideInset
+        ) {
+            if (this.bnbBgRef == null || this.bnbBgRef.get() != bnbBg) {
+                this.bnbBgRef = bnbBg != null ? new WeakReference<>(bnbBg) : null;
+            }
+            if (this.sysNavBgRef == null || this.sysNavBgRef.get() != sysNavBg) {
+                this.sysNavBgRef = sysNavBg != null ? new WeakReference<>(sysNavBg) : null;
+            }
             boolean changed = this.surfaceRgb != surfaceRgb
                     || this.rimAccentRgb != rimAccentRgb
                     || this.dark != dark
@@ -1937,6 +2127,8 @@ final class MaterialYou {
                         if (this.gpu == null) {
                             this.gpu = new NavBlurGpu();
                         }
+                        View bnbBg = this.bnbBgRef != null ? this.bnbBgRef.get() : null;
+                        View sysNavBg = this.sysNavBgRef != null ? this.sysNavBgRef.get() : null;
                         int pillWinX = Math.round(this.hostLoc[0] + left);
                         int pillWinY = Math.round(this.hostLoc[1] + top);
                         int pillW = Math.max(1, Math.round(right - left));
@@ -1944,7 +2136,7 @@ final class MaterialYou {
                         canvas.save();
                         canvas.translate(left, top);
                         ((NavBlurGpu) this.gpu).draw(
-                                canvas, decor, host, this.rawTabRefs,
+                                canvas, decor, host, bnbBg, sysNavBg, this.rawTabRefs,
                                 pillWinX, pillWinY, pillW, pillH, this.density, this.blurDirty
                         );
                         canvas.restore();
@@ -2052,6 +2244,8 @@ final class MaterialYou {
                 Canvas canvas,
                 View decor,
                 View navHost,
+                View bnbBg,
+                View sysNavBg,
                 List<WeakReference<View>> tabRefs,
                 int pillWinX,
                 int pillWinY,
@@ -2063,6 +2257,7 @@ final class MaterialYou {
             boolean sizeChanged = w != this.lastW || h != this.lastH;
             if (dirty || sizeChanged || !this.node.hasDisplayList()) {
                 View navBarRoot = resolveNavBarRoot(navHost, density);
+                View bnbBgRoot = bnbBg != null ? resolveNavBarRoot(bnbBg, density) : null;
                 View tabsRow = resolveTabsRow(tabRefs, density);
                 this.node.setPosition(0, 0, w, h);
                 RecordingCanvas rc = this.node.beginRecording(w, h);
@@ -2070,7 +2265,10 @@ final class MaterialYou {
                 try {
                     View contentRoot = decor.findViewById(android.R.id.content);
                     View sourceRoot = contentRoot != null ? contentRoot : decor;
-                    recordBackgroundBranch(rc, sourceRoot, navBarRoot, navHost, tabsRow, tabRefs, pillWinX, pillWinY);
+                    recordBackgroundBranch(
+                            rc, sourceRoot, navBarRoot, bnbBgRoot, navHost, bnbBg, sysNavBg,
+                            tabsRow, tabRefs, pillWinX, pillWinY
+                    );
                 } finally {
                     FloatingNavPillDrawable.recordingNavBlur = false;
                     this.node.endRecording();
@@ -2087,7 +2285,7 @@ final class MaterialYou {
         }
 
         private static View resolveNavBarRoot(View navHost, float density) {
-            int maxH = Math.round(density * 145.0f);
+            int maxH = Math.round(density * 165.0f);
             View cur = navHost;
             while (cur.getParent() instanceof ViewGroup) {
                 ViewGroup p = (ViewGroup) cur.getParent();
@@ -2108,7 +2306,7 @@ final class MaterialYou {
                 return null;
             }
             ViewGroup p = (ViewGroup) first.getParent();
-            int maxH = Math.round(density * 145.0f);
+            int maxH = Math.round(density * 165.0f);
             return (p.getHeight() > 0 && p.getHeight() <= maxH) ? p : null;
         }
 
@@ -2125,7 +2323,10 @@ final class MaterialYou {
                 Canvas rc,
                 View current,
                 View navBarRoot,
+                View bnbBgRoot,
                 View navHost,
+                View bnbBg,
+                View sysNavBg,
                 View tabsRow,
                 List<WeakReference<View>> tabRefs,
                 int pillWinX,
@@ -2137,11 +2338,18 @@ final class MaterialYou {
                     || !current.isAttachedToWindow()) {
                 return;
             }
-            if (current == navBarRoot || current == navHost || current == tabsRow || isTabView(current, tabRefs)) {
+            if (current == navBarRoot
+                    || current == bnbBgRoot
+                    || current == navHost
+                    || current == bnbBg
+                    || current == sysNavBg
+                    || current == tabsRow
+                    || isTabView(current, tabRefs)) {
                 return;
             }
             if (current instanceof ViewGroup && (
                     BlurBars.isSelfOrAncestor(current, navBarRoot)
+                            || (bnbBgRoot != null && BlurBars.isSelfOrAncestor(current, bnbBgRoot))
                             || (tabsRow != null && BlurBars.isSelfOrAncestor(current, tabsRow))
             )) {
                 Drawable bg = current.getBackground();
@@ -2157,7 +2365,10 @@ final class MaterialYou {
                 for (int i = 0; i < count; i++) {
                     View child = vg.getChildAt(i);
                     if (child != null) {
-                        recordBackgroundBranch(rc, child, navBarRoot, navHost, tabsRow, tabRefs, pillWinX, pillWinY);
+                        recordBackgroundBranch(
+                                rc, child, navBarRoot, bnbBgRoot, navHost, bnbBg, sysNavBg,
+                                tabsRow, tabRefs, pillWinX, pillWinY
+                        );
                     }
                 }
                 return;
