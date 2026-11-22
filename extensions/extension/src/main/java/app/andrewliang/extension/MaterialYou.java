@@ -13,6 +13,8 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
@@ -24,6 +26,7 @@ import android.graphics.RectF;
 import android.graphics.RenderEffect;
 import android.graphics.RenderNode;
 import android.graphics.Shader;
+import android.graphics.Typeface;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
@@ -208,9 +211,12 @@ final class MaterialYou {
     private static final Map<View, Drawable> ORIG_NAV_CLEARED_BG = new WeakHashMap<>();
     private static final Map<ImageView, Integer> ORIG_NAV_IMAGE_ALPHA = new WeakHashMap<>();
     private static final Map<View, Float> ORIG_NAV_SIBLING_ALPHA = new WeakHashMap<>();
+    private static final Map<TextView, Typeface> ORIG_NAV_TEXT_TYPEFACE = new WeakHashMap<>();
+    private static final Map<View, float[]> ORIG_NAV_BADGE_TRANSFORM = new WeakHashMap<>();
     private static final Map<View, Boolean> CONTENT_BG_APPLIED = new WeakHashMap<>();
     private static final Map<View, WeakReference<View>> NAV_SCROLL_HOST = new WeakHashMap<>();
     private static final Map<View, ViewTreeObserver.OnScrollChangedListener> NAV_SCROLL_LISTENERS = new WeakHashMap<>();
+    private static final Map<View, ViewTreeObserver.OnPreDrawListener> NAV_PREDRAW_LISTENERS = new WeakHashMap<>();
     private static final Map<View, Integer> BADGE_APPLIED = new WeakHashMap<>();
     private static final Map<View, String> CHAT_IDS = new WeakHashMap<>();
     private static final Map<View, WallpaperPalette> SKIN_WALLPAPER_CACHE = new WeakHashMap<>();
@@ -893,6 +899,75 @@ final class MaterialYou {
 
     private static final class BadgePillDrawable extends GradientDrawable {
         int appliedColor;
+        int appliedStrokeColor;
+        int appliedStrokeWidth;
+    }
+
+    private static final class GestureStripMistDrawable extends Drawable {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private int baseRgb;
+        private boolean dark;
+        private int cachedH = -1;
+        private int cachedKey;
+
+        GestureStripMistDrawable(int pageBgColor, boolean dark) {
+            update(pageBgColor, dark);
+        }
+
+        void update(int pageBgColor, boolean dark) {
+            int rgb = pageBgColor & 0x00FFFFFF;
+            if (this.baseRgb != rgb || this.dark != dark) {
+                this.baseRgb = rgb;
+                this.dark = dark;
+                this.cachedH = -1;
+                invalidateSelf();
+            }
+        }
+
+        @Override
+        public void draw(Canvas canvas) {
+            if (FloatingNavPillDrawable.recordingNavBlur || ProgressiveBlurDrawable.recording) {
+                return;
+            }
+            Rect b = getBounds();
+            int w = b.width();
+            int h = b.height();
+            if (w <= 0 || h <= 0) {
+                return;
+            }
+            int key = this.baseRgb ^ (this.dark ? 0x40000000 : 0);
+            if (h != this.cachedH || key != this.cachedKey) {
+                this.cachedH = h;
+                this.cachedKey = key;
+                int maxAlpha = this.dark ? 0xCC : 0xC4;
+                int c0 = this.baseRgb;
+                int c1 = withAlpha(this.baseRgb, Math.round(maxAlpha * 0.22f));
+                int c2 = withAlpha(this.baseRgb, Math.round(maxAlpha * 0.65f));
+                int c3 = withAlpha(this.baseRgb, maxAlpha);
+                this.paint.setShader(new LinearGradient(
+                        0f, b.top, 0f, b.bottom,
+                        new int[]{c0, c1, c2, c3},
+                        new float[]{0f, 0.35f, 0.72f, 1f},
+                        Shader.TileMode.CLAMP
+                ));
+            }
+            canvas.drawRect(b, this.paint);
+        }
+
+        @Override
+        public void setAlpha(int alpha) {
+            this.paint.setAlpha(alpha);
+        }
+
+        @Override
+        public void setColorFilter(ColorFilter colorFilter) {
+            this.paint.setColorFilter(colorFilter);
+        }
+
+        @Override
+        public int getOpacity() {
+            return PixelFormat.TRANSLUCENT;
+        }
     }
 
     private static int withAlpha(int rgb, int alpha) {
@@ -1043,12 +1118,10 @@ final class MaterialYou {
         if (pillMode) {
             if (styleNavBar) {
                 activePillFill = palette.dark
-                        ? withAlpha(blend(palette.navBarBg, palette.accent, 0.34f), 0xEE)
-                        : withAlpha(blend(palette.sendBubble, palette.accent, 0.15f), 0xF0);
-                activePillStroke = withAlpha(palette.accent, palette.dark ? 0x42 : 0x30);
+                        ? withAlpha(blend(palette.navBarBg, palette.accent, 0.36f), 0xDF)
+                        : withAlpha(blend(palette.sendBubble, palette.accent, 0.14f), 0xE8);
             } else {
-                activePillFill = palette.dark ? 0x32FFFFFF : 0x1E000000;
-                activePillStroke = palette.dark ? 0x26FFFFFF : 0x16000000;
+                activePillFill = palette.dark ? 0x26FFFFFF : 0x15000000;
             }
         }
 
@@ -1084,11 +1157,21 @@ final class MaterialYou {
             if (styleNavBar || pillMode) {
                 int tint;
                 if (styleNavBar) {
-                    tint = selected ? palette.navSelected : palette.navUnselected;
+                    if (pillMode) {
+                        tint = selected
+                                ? (palette.dark
+                                        ? blend(palette.navSelected, 0xFFFFFFFF, 0.22f)
+                                        : blend(palette.navSelected, 0xFF000000, 0.24f))
+                                : (palette.dark
+                                        ? withAlpha(palette.navUnselected, 0xCC)
+                                        : blend(palette.navUnselected, 0xFF282E34, 0.38f));
+                    } else {
+                        tint = selected ? palette.navSelected : palette.navUnselected;
+                    }
                 } else {
                     tint = selected
-                            ? (palette.dark ? 0xFFFFFFFF : 0xFF141619)
-                            : (palette.dark ? 0xA6FFFFFF : 0x8E141619);
+                            ? (palette.dark ? 0xFFFFFFFF : 0xFF111417)
+                            : (palette.dark ? 0xB3FFFFFF : 0xA81D2228);
                 }
 
                 if (iconView instanceof ImageView) {
@@ -1108,9 +1191,25 @@ final class MaterialYou {
                     if (tv.getShadowRadius() > 0f) {
                         tv.setShadowLayer(0f, 0f, 0f, 0);
                     }
+                    if (pillMode) {
+                        Typeface baseTf = ORIG_NAV_TEXT_TYPEFACE.get(tv);
+                        if (baseTf == null) {
+                            baseTf = tv.getTypeface() != null ? tv.getTypeface() : Typeface.DEFAULT;
+                            ORIG_NAV_TEXT_TYPEFACE.put(tv, baseTf);
+                        }
+                        int targetStyle = selected ? Typeface.BOLD : Typeface.NORMAL;
+                        Typeface curTf = tv.getTypeface();
+                        if (curTf == null || curTf.getStyle() != targetStyle) {
+                            tv.setTypeface(Typeface.create(baseTf, targetStyle));
+                        }
+                    }
                 }
             }
-            if (LineSettings.materialYouTheme() || styleNavBar) {
+            if (pillMode) {
+                boolean useMyBadge = LineSettings.materialYouTheme() || styleNavBar;
+                styleTabBadgeInPill(BlurBars.find(tab, "bnb_button_badge_num"), palette, useMyBadge);
+                styleTabBadgeInPill(BlurBars.find(tab, "default_theme_bnb_button_badge_num"), palette, useMyBadge);
+            } else if (LineSettings.materialYouTheme() || styleNavBar) {
                 tintBadge(BlurBars.find(tab, "bnb_button_badge_num"), palette);
                 tintBadge(BlurBars.find(tab, "default_theme_bnb_button_badge_num"), palette);
             }
@@ -1169,7 +1268,9 @@ final class MaterialYou {
             return;
         }
         Drawable bg = v.getBackground();
-        if (bg != null && !(bg instanceof FloatingNavPillDrawable)) {
+        if (bg != null
+                && !(bg instanceof FloatingNavPillDrawable)
+                && !(bg instanceof GestureStripMistDrawable)) {
             if (!ORIG_NAV_CLEARED_BG.containsKey(v)) {
                 ORIG_NAV_CLEARED_BG.put(v, bg);
             }
@@ -1206,7 +1307,8 @@ final class MaterialYou {
                 if (child == null
                         || child == pillHost
                         || BlurBars.isSelfOrAncestor(child, pillHost)
-                        || isAnyTab(child, visibleTabs)) {
+                        || isAnyTab(child, visibleTabs)
+                        || child.getBackground() instanceof GestureStripMistDrawable) {
                     continue;
                 }
                 clearNavWrapperBackground(child);
@@ -1240,7 +1342,7 @@ final class MaterialYou {
         int pageBgColor = resolvePageBackgroundColor(ctx, palette);
         syncSystemNavigationBarBackdrop(decorView, bnbBg, pageBgColor);
 
-        // Paint contentRoot at the back of the hierarchy so DecorView's #000000 never shows on non-scrolling screens.
+        // Paint contentRoot at the back of the hierarchy so a black DecorView never shows on static screens.
         View contentRoot = decorView.findViewById(android.R.id.content);
         if (contentRoot != null) {
             Drawable cBg = contentRoot.getBackground();
@@ -1269,14 +1371,25 @@ final class MaterialYou {
             anc = avg.getParent();
         }
 
-        // Keep main_navigation_bar_background transparent so page content extends behind the gesture bar.
+        // Paint a soft bottom mist on the gesture strip so the system gesture handle stays clear without a hard edge.
         if (sysNavBg != null) {
-            clearNavWrapperBackground(sysNavBg);
-            if (sysNavBg.getAlpha() > 0f) {
-                if (!ORIG_NAV_SIBLING_ALPHA.containsKey(sysNavBg)) {
-                    ORIG_NAV_SIBLING_ALPHA.put(sysNavBg, sysNavBg.getAlpha());
+            if (sysNavBg.getVisibility() != View.VISIBLE) {
+                sysNavBg.setVisibility(View.VISIBLE);
+            }
+            if (sysNavBg.getAlpha() != 1f) {
+                sysNavBg.setAlpha(1f);
+            }
+            if (sysNavBg.getTranslationZ() != 0f) {
+                sysNavBg.setTranslationZ(0f);
+            }
+            Drawable sBg = sysNavBg.getBackground();
+            if (sBg instanceof GestureStripMistDrawable) {
+                ((GestureStripMistDrawable) sBg).update(pageBgColor, palette.dark);
+            } else {
+                if (sBg != null && !ORIG_NAV_CLEARED_BG.containsKey(sysNavBg)) {
+                    ORIG_NAV_CLEARED_BG.put(sysNavBg, sBg);
                 }
-                sysNavBg.setAlpha(0f);
+                sysNavBg.setBackground(new GestureStripMistDrawable(pageBgColor, palette.dark));
             }
         }
 
@@ -1316,12 +1429,12 @@ final class MaterialYou {
             pillHost.setWillNotDraw(false);
         }
         pillHost.setOutlineProvider(null);
-        float pillZ = BlurBars.dp(ctx, 2.0f);
+        float pillZ = BlurBars.dp(ctx, 4.0f);
         if (pillHost.getTranslationZ() != pillZ) {
             pillHost.setTranslationZ(pillZ);
         }
 
-        // Clear rectangular backgrounds along all bottom-bar branches (main_tab_container, pillHost, bnbBg, sysNavBg).
+        // Clear rectangular backgrounds along all bottom-bar branches.
         int maxBarWrapperH = BlurBars.dp(ctx, 165.0f);
         int maxDividerH = BlurBars.dp(ctx, 110.0f);
         View mainTabContainer = BlurBars.find(decorView, "main_tab_container");
@@ -1356,8 +1469,10 @@ final class MaterialYou {
                 View sib = barParentRoot.getChildAt(i);
                 if (sib == null
                         || sib == pillHost
+                        || sib == sysNavBg
                         || BlurBars.isSelfOrAncestor(sib, pillHost)
-                        || isAnyTab(sib, visibleTabs)) {
+                        || isAnyTab(sib, visibleTabs)
+                        || sib.getBackground() instanceof GestureStripMistDrawable) {
                     continue;
                 }
                 int sH = sib.getHeight();
@@ -1377,11 +1492,13 @@ final class MaterialYou {
                 ? decorView.getWidth()
                 : ctx.getResources().getDisplayMetrics().widthPixels;
         int tabCount = visibleTabs.size();
-        int desiredPillWidth = Math.min(
-                totalWidth - BlurBars.dp(ctx, 28.0f),
-                tabCount * BlurBars.dp(ctx, 100.0f) + BlurBars.dp(ctx, 16.0f)
+        float perTabDp = tabCount <= 3 ? 112.0f : (tabCount == 4 ? 100.0f : 90.0f);
+        float minEdgeDp = tabCount <= 3 ? 18.0f : 14.0f;
+        int desiredRowWidth = Math.min(
+                totalWidth - BlurBars.dp(ctx, minEdgeDp * 2.0f),
+                BlurBars.dp(ctx, tabCount * perTabDp)
         );
-        int sideInset = Math.max(BlurBars.dp(ctx, 14.0f), (totalWidth - desiredPillWidth) / 2);
+        int innerSidePad = Math.max(BlurBars.dp(ctx, minEdgeDp), (totalWidth - desiredRowWidth) / 2);
 
         if (tabsParent != null) {
             int[] origPad = ORIG_NAV_PADDING.get(tabsParent);
@@ -1394,13 +1511,12 @@ final class MaterialYou {
                 };
                 ORIG_NAV_PADDING.put(tabsParent, origPad);
             }
-            int innerSidePad = sideInset + BlurBars.dp(ctx, 4.0f);
             if (tabsParent.getPaddingLeft() != innerSidePad || tabsParent.getPaddingRight() != innerSidePad) {
                 tabsParent.setPadding(innerSidePad, origPad[1], innerSidePad, origPad[3]);
             }
         }
 
-        float liftY = -BlurBars.dp(ctx, 12.0f);
+        float liftY = -BlurBars.dp(ctx, 2.0f);
         if (pillHost.getTranslationY() != liftY) {
             pillHost.setTranslationY(liftY);
         }
@@ -1417,16 +1533,16 @@ final class MaterialYou {
         int rimAccent;
         if (styleNavBar) {
             baseSurface = palette.dark
-                    ? blend(palette.navBarBg, palette.accent, 0.09f)
-                    : blend(palette.navBarBg, palette.accent, 0.13f);
+                    ? blend(0xFF161920, palette.navBarBg, 0.45f)
+                    : blend(0xFFFFFFFF, palette.navBarBg, 0.22f);
             rimAccent = palette.accent;
         } else {
-            baseSurface = palette.dark ? 0xFF21242B : 0xFFE8ECF2;
-            rimAccent = palette.dark ? 0xFFFFFFFF : 0xFF5A6270;
+            baseSurface = palette.dark ? 0xFF181B22 : 0xFFFAFBFD;
+            rimAccent = palette.dark ? 0xFFFFFFFF : 0xFF3E4752;
         }
         pillDrawable.update(
                 visibleTabs, viewPager, mainTabContainer, bnbBg, sysNavBg,
-                pageBgColor, baseSurface, rimAccent, palette.dark, sideInset
+                pageBgColor, baseSurface, rimAccent, palette.dark, innerSidePad
         );
     }
 
@@ -1461,8 +1577,13 @@ final class MaterialYou {
         if (bnbBg.getTranslationZ() != 0f) {
             bnbBg.setTranslationZ(0f);
         }
-        if (sysNavBg != null && sysNavBg.getAlpha() != 1f) {
-            sysNavBg.setAlpha(1f);
+        if (sysNavBg != null) {
+            if (sysNavBg.getBackground() instanceof GestureStripMistDrawable) {
+                sysNavBg.setBackground(null);
+            }
+            if (sysNavBg.getAlpha() != 1f) {
+                sysNavBg.setAlpha(1f);
+            }
         }
         if (tabsParent != null) {
             if (tabsParent.getBackground() instanceof FloatingNavPillDrawable) {
@@ -1511,6 +1632,26 @@ final class MaterialYou {
         }
         ORIG_NAV_SIBLING_ALPHA.clear();
 
+        for (Map.Entry<TextView, Typeface> entry : ORIG_NAV_TEXT_TYPEFACE.entrySet()) {
+            TextView tv = entry.getKey();
+            Typeface tf = entry.getValue();
+            if (tv != null && tf != null) {
+                tv.setTypeface(tf);
+            }
+        }
+        ORIG_NAV_TEXT_TYPEFACE.clear();
+
+        for (Map.Entry<View, float[]> entry : ORIG_NAV_BADGE_TRANSFORM.entrySet()) {
+            View bv = entry.getKey();
+            float[] tr = entry.getValue();
+            if (bv != null && tr != null && tr.length == 3) {
+                bv.setScaleX(tr[0]);
+                bv.setScaleY(tr[1]);
+                bv.setTranslationY(tr[2]);
+            }
+        }
+        ORIG_NAV_BADGE_TRANSFORM.clear();
+
         if (decorView != null) {
             View contentRoot = decorView.findViewById(android.R.id.content);
             if (contentRoot != null && Boolean.TRUE.equals(CONTENT_BG_APPLIED.remove(contentRoot))) {
@@ -1527,25 +1668,46 @@ final class MaterialYou {
 
     private static void ensureNavScrollBlurObserver(View decorView, View pillHost) {
         NAV_SCROLL_HOST.put(decorView, new WeakReference<>(pillHost));
-        if (NAV_SCROLL_LISTENERS.containsKey(decorView)) {
-            return;
-        }
-        final WeakReference<View> decorRef = new WeakReference<>(decorView);
-        ViewTreeObserver.OnScrollChangedListener listener = () -> {
-            View d = decorRef.get();
-            if (d == null) {
-                return;
-            }
-            WeakReference<View> hostRef = NAV_SCROLL_HOST.get(d);
-            View host = hostRef != null ? hostRef.get() : null;
-            if (host != null && host.getBackground() instanceof FloatingNavPillDrawable) {
-                ((FloatingNavPillDrawable) host.getBackground()).markDirty();
-            }
-        };
-        NAV_SCROLL_LISTENERS.put(decorView, listener);
         ViewTreeObserver vto = decorView.getViewTreeObserver();
-        if (vto != null && vto.isAlive()) {
-            vto.addOnScrollChangedListener(listener);
+        if (!NAV_SCROLL_LISTENERS.containsKey(decorView)) {
+            final WeakReference<View> decorRef = new WeakReference<>(decorView);
+            ViewTreeObserver.OnScrollChangedListener scrollListener = () -> {
+                View d = decorRef.get();
+                if (d == null) {
+                    return;
+                }
+                WeakReference<View> hostRef = NAV_SCROLL_HOST.get(d);
+                View host = hostRef != null ? hostRef.get() : null;
+                if (host != null && host.getBackground() instanceof FloatingNavPillDrawable) {
+                    ((FloatingNavPillDrawable) host.getBackground()).markDirty();
+                }
+            };
+            NAV_SCROLL_LISTENERS.put(decorView, scrollListener);
+            if (vto != null && vto.isAlive()) {
+                vto.addOnScrollChangedListener(scrollListener);
+            }
+        }
+        if (!NAV_PREDRAW_LISTENERS.containsKey(decorView)) {
+            final WeakReference<View> decorRef = new WeakReference<>(decorView);
+            ViewTreeObserver.OnPreDrawListener preDrawListener = () -> {
+                View d = decorRef.get();
+                if (d == null || !LineSettings.navBarPill() || BlurBars.powerSave()) {
+                    return true;
+                }
+                WeakReference<View> hostRef = NAV_SCROLL_HOST.get(d);
+                View host = hostRef != null ? hostRef.get() : null;
+                if (host != null && host.getBackground() instanceof FloatingNavPillDrawable) {
+                    FloatingNavPillDrawable pill = (FloatingNavPillDrawable) host.getBackground();
+                    if (pill.isSourceDirty()) {
+                        pill.markDirty();
+                    }
+                }
+                return true;
+            };
+            NAV_PREDRAW_LISTENERS.put(decorView, preDrawListener);
+            if (vto != null && vto.isAlive()) {
+                vto.addOnPreDrawListener(preDrawListener);
+            }
         }
     }
 
@@ -1590,7 +1752,8 @@ final class MaterialYou {
         if (v == null
                 || v == pillHost
                 || BlurBars.isSelfOrAncestor(v, pillHost)
-                || isAnyTab(v, visibleTabs)) {
+                || isAnyTab(v, visibleTabs)
+                || v.getBackground() instanceof GestureStripMistDrawable) {
             return;
         }
         clearNavWrapperBackground(v);
@@ -2329,9 +2492,9 @@ final class MaterialYou {
             iconVisualTop = textBottom - density * 32.0f;
         }
 
-        float top = iconVisualTop - density * 4.8f;
-        float bottom = textBottom + density * 5.2f;
-        float minH = density * 38.0f;
+        float top = iconVisualTop - density * 8.0f;
+        float bottom = textBottom + density * 4.0f;
+        float minH = density * 42.0f;
         if (bottom - top < minH) {
             top = bottom - minH;
         }
@@ -2340,8 +2503,8 @@ final class MaterialYou {
     }
 
     static float computeActivePillWidth(int tabWidth, float pillHeight, float density) {
-        float desiredW = Math.max(pillHeight * 1.85f, density * 78.0f);
-        float maxAllowedW = Math.max(density * 46.0f, tabWidth - density * 6.0f);
+        float desiredW = Math.max(pillHeight * 2.08f, density * 88.0f);
+        float maxAllowedW = Math.max(density * 48.0f, tabWidth - density * 8.0f);
         return Math.min(desiredW, maxAllowedW);
     }
 
@@ -2462,9 +2625,9 @@ final class MaterialYou {
     }
 
     /**
-     * Concentric floating stadium-capsule background for LINE's bottom navigation bar with real-time
-     * Android 12+ {@link RenderNode} + {@link RenderEffect} frosted-glass blur, soft ambient shadow,
-     * and crisp tonal rim border.
+     * Concentric floating stadium-capsule background for the LINE bottom navigation bar with real-time
+     * Android 12+ {@link RenderNode} and {@link RenderEffect} frosted-glass blur, exterior ambient shadow,
+     * inner specular catch-light, and subtle outer hairline.
      */
     private static final class FloatingNavPillDrawable extends Drawable {
         static boolean recordingNavBlur;
@@ -2476,8 +2639,10 @@ final class MaterialYou {
         private final List<WeakReference<View>> rawTabRefs = new ArrayList<>(6);
         private final Paint shadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint innerRimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint rimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF pillRect = new RectF();
+        private final RectF innerRimRect = new RectF();
         private final RectF rimRect = new RectF();
         private final RectF shadowRect = new RectF();
         private final Path clipPath = new Path();
@@ -2510,8 +2675,10 @@ final class MaterialYou {
             this.density = host.getResources().getDisplayMetrics().density;
             this.shadowPaint.setStyle(Paint.Style.FILL);
             this.fillPaint.setStyle(Paint.Style.FILL);
+            this.innerRimPaint.setStyle(Paint.Style.STROKE);
+            this.innerRimPaint.setStrokeWidth(Math.max(1.0f, this.density * 1.0f));
             this.rimPaint.setStyle(Paint.Style.STROKE);
-            this.rimPaint.setStrokeWidth(Math.max(1.0f, this.density * 1.0f));
+            this.rimPaint.setStrokeWidth(Math.max(1.0f, this.density * 0.75f));
         }
 
         void update(
@@ -2570,11 +2737,26 @@ final class MaterialYou {
             }
         }
 
+        boolean isSourceDirty() {
+            View vp = this.viewPagerRef != null ? this.viewPagerRef.get() : null;
+            if (vp != null && vp.isDirty()) {
+                return true;
+            }
+            View decor = this.decorRef.get();
+            if (decor != null && vp == null) {
+                View contentRoot = decor.findViewById(android.R.id.content);
+                return contentRoot != null && contentRoot.isDirty();
+            }
+            return false;
+        }
+
         void markDirty() {
-            this.blurDirty = true;
-            View host = this.hostRef.get();
-            if (host != null && host.isAttachedToWindow()) {
-                host.invalidate();
+            if (!this.blurDirty) {
+                this.blurDirty = true;
+                View host = this.hostRef.get();
+                if (host != null && host.isAttachedToWindow()) {
+                    host.invalidate();
+                }
             }
         }
 
@@ -2625,8 +2807,8 @@ final class MaterialYou {
                 }
             }
 
-            float concentricGap = this.density * 4.5f;
-            float minScreenMargin = this.density * 10.0f;
+            float concentricGap = this.density * 5.5f;
+            float minScreenMargin = this.density * 12.0f;
             float left;
             float right;
             float top;
@@ -2637,10 +2819,10 @@ final class MaterialYou {
                 top = minInnerTop - concentricGap;
                 bottom = maxInnerBottom + concentricGap;
             } else {
-                left = Math.min(this.fallbackSideInset, w * 0.22f);
-                right = Math.max(left + this.density * 140.0f, w - left);
+                left = Math.min(this.fallbackSideInset, w * 0.16f);
+                right = Math.max(left + this.density * 160.0f, w - left);
                 bottom = h - this.density * 2.0f;
-                top = bottom - this.density * 52.0f;
+                top = bottom - this.density * 54.0f;
             }
             if (right - left <= this.density * 40.0f || bottom - top <= this.density * 24.0f) {
                 return;
@@ -2653,23 +2835,29 @@ final class MaterialYou {
             boolean powerSave = BlurBars.powerSave();
             boolean canBlur = !powerSave && Build.VERSION.SDK_INT >= 31 && canvas.isHardwareAccelerated();
 
-            // Soft layered ambient shadow underneath the floating capsule
-            int baseShadowAlpha = this.dark ? 0x30 : 0x1A;
-            for (int step = 3; step >= 1; step--) {
-                float spread = step * this.density * 1.15f;
-                float dy = step * this.density * 1.25f;
+            ensureShaders(left, top, right, bottom, radius, canBlur);
+
+            // Clip out the pill interior so the exterior drop shadow never darkens the frosted glass.
+            int shadowSave = canvas.save();
+            if (Build.VERSION.SDK_INT >= 26) {
+                canvas.clipOutPath(this.clipPath);
+            }
+            int shadowRgb = this.dark ? 0x000000 : 0x0C1820;
+            int stepAlpha = this.dark ? 0x0E : 0x07;
+            for (int step = 6; step >= 1; step--) {
+                float spread = step * this.density * 1.65f;
+                float dy = step * this.density * 0.95f;
                 this.shadowRect.set(
-                        left - spread * 0.45f,
-                        top + dy * 0.5f,
-                        right + spread * 0.45f,
-                        bottom + dy + spread * 0.45f
+                        left - spread * 0.55f,
+                        top + dy * 0.35f - spread * 0.15f,
+                        right + spread * 0.55f,
+                        bottom + dy + spread * 0.65f
                 );
-                this.shadowPaint.setColor(((baseShadowAlpha / step) & 0xFF) << 24);
-                float sr = radius + spread * 0.45f;
+                this.shadowPaint.setColor(withAlpha(shadowRgb, stepAlpha));
+                float sr = radius + spread * 0.55f;
                 canvas.drawRoundRect(this.shadowRect, sr, sr, this.shadowPaint);
             }
-
-            ensureShaders(left, top, right, bottom, radius, canBlur);
+            canvas.restoreToCount(shadowSave);
 
             int save = canvas.save();
             canvas.clipPath(this.clipPath);
@@ -2696,14 +2884,16 @@ final class MaterialYou {
                                 pillW, pillH, this.density, this.blurDirty
                         );
                         canvas.restore();
-                        this.blurDirty = false;
                     }
                 }
+                this.blurDirty = false;
                 canvas.drawRect(this.pillRect, this.fillPaint);
             } finally {
                 canvas.restoreToCount(save);
             }
 
+            float innerRimRadius = Math.max(0f, Math.min(this.innerRimRect.width(), this.innerRimRect.height()) * 0.5f);
+            canvas.drawRoundRect(this.innerRimRect, innerRimRadius, innerRimRadius, this.innerRimPaint);
             float rimRadius = Math.max(0f, Math.min(this.rimRect.width(), this.rimRect.height()) * 0.5f);
             canvas.drawRoundRect(this.rimRect, rimRadius, rimRadius, this.rimPaint);
         }
@@ -2732,13 +2922,13 @@ final class MaterialYou {
             int alphaTop;
             int alphaBottom;
             if (canBlur) {
-                alphaTop = this.dark ? 0xC6 : 0xD4;
-                alphaBottom = this.dark ? 0xDA : 0xE6;
+                alphaTop = this.dark ? 0xAA : 0xA6;
+                alphaBottom = this.dark ? 0xBE : 0xBA;
             } else {
-                alphaTop = this.dark ? 0xF0 : 0xF4;
-                alphaBottom = this.dark ? 0xF6 : 0xFA;
+                alphaTop = this.dark ? 0xEE : 0xF0;
+                alphaBottom = this.dark ? 0xF5 : 0xF7;
             }
-            int topFill = withAlpha(blend(this.surfaceRgb, 0xFFFFFFFF, this.dark ? 0.04f : 0.08f), alphaTop);
+            int topFill = withAlpha(blend(this.surfaceRgb, 0xFFFFFFFF, this.dark ? 0.05f : 0.35f), alphaTop);
             int botFill = withAlpha(this.surfaceRgb, alphaBottom);
             this.fillPaint.setShader(new LinearGradient(
                     left, top, left, bottom,
@@ -2747,23 +2937,40 @@ final class MaterialYou {
                     Shader.TileMode.CLAMP
             ));
 
-            float stroke = this.rimPaint.getStrokeWidth();
-            float inset = stroke * 0.5f;
-            this.rimRect.set(left + inset, top + inset, right - inset, bottom - inset);
+            float outerStroke = this.rimPaint.getStrokeWidth();
+            float outerInset = outerStroke * 0.5f;
+            this.rimRect.set(left + outerInset, top + outerInset, right - outerInset, bottom - outerInset);
+
+            float innerInset = outerStroke + this.innerRimPaint.getStrokeWidth() * 0.5f;
+            this.innerRimRect.set(left + innerInset, top + innerInset, right - innerInset, bottom - innerInset);
+
             if (this.dark) {
-                int topRim = withAlpha(blend(0xFFFFFFFF, this.rimAccentRgb, 0.25f), 0x4C);
-                int midRim = withAlpha(this.rimAccentRgb, 0x26);
-                int botRim = withAlpha(0xFFFFFFFF, 0x18);
+                this.innerRimPaint.setShader(new LinearGradient(
+                        left, top, left, bottom,
+                        new int[]{0x40FFFFFF, 0x10FFFFFF, 0x20FFFFFF},
+                        new float[]{0f, 0.48f, 1f},
+                        Shader.TileMode.CLAMP
+                ));
+                int topRim = withAlpha(blend(0xFFFFFFFF, this.rimAccentRgb, 0.22f), 0x34);
+                int midRim = withAlpha(this.rimAccentRgb, 0x1A);
+                int botRim = 0x14FFFFFF;
                 this.rimPaint.setShader(new LinearGradient(
                         left, top, left, bottom,
                         new int[]{topRim, midRim, botRim},
-                        new float[]{0f, 0.45f, 1f},
+                        new float[]{0f, 0.5f, 1f},
                         Shader.TileMode.CLAMP
                 ));
             } else {
-                int topRim = withAlpha(blend(this.rimAccentRgb, 0xFFFFFFFF, 0.35f), 0x42);
-                int midRim = withAlpha(this.rimAccentRgb, 0x2E);
-                int botRim = withAlpha(blend(this.rimAccentRgb, 0xFF000000, 0.25f), 0x38);
+                this.innerRimPaint.setShader(new LinearGradient(
+                        left, top, left, bottom,
+                        new int[]{0xD0FFFFFF, 0x48FFFFFF, 0x80FFFFFF},
+                        new float[]{0f, 0.5f, 1f},
+                        Shader.TileMode.CLAMP
+                ));
+                int hairlineBase = blend(0xFF0F1C22, this.rimAccentRgb, 0.30f);
+                int topRim = withAlpha(hairlineBase, 0x18);
+                int midRim = withAlpha(hairlineBase, 0x22);
+                int botRim = withAlpha(hairlineBase, 0x2E);
                 this.rimPaint.setShader(new LinearGradient(
                         left, top, left, bottom,
                         new int[]{topRim, midRim, botRim},
@@ -2850,8 +3057,11 @@ final class MaterialYou {
                 }
             }
             if (this.effect == null || sizeChanged) {
-                float r = density * 22.0f;
-                this.effect = RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP);
+                float r = density * 28.0f;
+                RenderEffect blur = RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP);
+                ColorMatrix cm = new ColorMatrix();
+                cm.setSaturation(1.42f);
+                this.effect = RenderEffect.createColorFilterEffect(new ColorMatrixColorFilter(cm), blur);
                 this.node.setRenderEffect(this.effect);
                 this.lastW = w;
                 this.lastH = h;
@@ -2931,7 +3141,9 @@ final class MaterialYou {
                             || (tabsRow != null && BlurBars.isSelfOrAncestor(current, tabsRow))
             )) {
                 Drawable bg = current.getBackground();
-                if (bg != null && !(bg instanceof FloatingNavPillDrawable)) {
+                if (bg != null
+                        && !(bg instanceof FloatingNavPillDrawable)
+                        && !(bg instanceof GestureStripMistDrawable)) {
                     current.getLocationInWindow(this.childLoc);
                     int s = rc.save();
                     rc.translate(this.childLoc[0] - pillWinX, this.childLoc[1] - pillWinY);
@@ -3004,12 +3216,52 @@ final class MaterialYou {
     }
 
     private static void tintBadge(View view, Palette palette) {
+        applyBadgeStyle(view, palette.badgeBg, palette.onBadge, 0, 0);
+    }
+
+    private static void styleTabBadgeInPill(View view, Palette palette, boolean useMyColors) {
+        if (!(view instanceof TextView) || view.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        Context ctx = view.getContext();
+        if (!ORIG_NAV_BADGE_TRANSFORM.containsKey(view)) {
+            ORIG_NAV_BADGE_TRANSFORM.put(view, new float[]{
+                    view.getScaleX(),
+                    view.getScaleY(),
+                    view.getTranslationY()
+            });
+        }
+        float targetScale = 0.90f;
+        float targetTy = BlurBars.dp(ctx, 1.5f);
+        if (view.getScaleX() != targetScale) {
+            view.setScaleX(targetScale);
+        }
+        if (view.getScaleY() != targetScale) {
+            view.setScaleY(targetScale);
+        }
+        if (view.getTranslationY() != targetTy) {
+            view.setTranslationY(targetTy);
+        }
+        int bgColor = useMyColors ? palette.badgeBg : 0xFFE03E36;
+        int textColor = useMyColors ? palette.onBadge : 0xFFFFFFFF;
+        int cutoutStrokeColor = palette.dark ? 0xFF1F242D : 0xFFF7FAFC;
+        int strokeWidth = Math.max(2, Math.round(ctx.getResources().getDisplayMetrics().density * 1.4f));
+        applyBadgeStyle(view, bgColor, textColor, strokeWidth, cutoutStrokeColor);
+    }
+
+    private static void applyBadgeStyle(
+            View view,
+            int bgColor,
+            int textColor,
+            int strokeWidth,
+            int strokeColor
+    ) {
         if (!(view instanceof TextView) || view.getVisibility() != View.VISIBLE) {
             return;
         }
         TextView tv = (TextView) view;
-        if (tv.getCurrentTextColor() != palette.onBadge) {
-            tv.setTextColor(palette.onBadge);
+        if (tv.getCurrentTextColor() != textColor) {
+            tv.setTextColor(textColor);
         }
         Drawable bg = tv.getBackground();
         int[] pad = ORIG_BADGE_PADDING.get(tv);
@@ -3029,22 +3281,37 @@ final class MaterialYou {
         }
         if (bg instanceof BadgePillDrawable) {
             BadgePillDrawable pill = (BadgePillDrawable) bg;
-            if (pill.appliedColor != palette.badgeBg) {
-                pill.appliedColor = palette.badgeBg;
-                pill.setColor(palette.badgeBg);
+            if (pill.appliedColor != bgColor) {
+                pill.appliedColor = bgColor;
+                pill.setColor(bgColor);
+            }
+            if (pill.appliedStrokeWidth != strokeWidth || pill.appliedStrokeColor != strokeColor) {
+                pill.appliedStrokeWidth = strokeWidth;
+                pill.appliedStrokeColor = strokeColor;
+                pill.setStroke(strokeWidth, strokeColor);
             }
         } else {
             BadgePillDrawable pill = new BadgePillDrawable();
             pill.setShape(GradientDrawable.RECTANGLE);
             pill.setCornerRadius(BlurBars.dp(tv.getContext(), 999.0f));
-            pill.appliedColor = palette.badgeBg;
-            pill.setColor(palette.badgeBg);
+            pill.appliedColor = bgColor;
+            pill.setColor(bgColor);
+            pill.appliedStrokeWidth = strokeWidth;
+            pill.appliedStrokeColor = strokeColor;
+            if (strokeWidth > 0) {
+                pill.setStroke(strokeWidth, strokeColor);
+            }
             tv.setBackgroundTintList(null);
             tv.setBackground(pill);
         }
-        if (tv.getPaddingLeft() != pad[0] || tv.getPaddingTop() != pad[1]
-                || tv.getPaddingRight() != pad[2] || tv.getPaddingBottom() != pad[3]) {
-            tv.setPadding(pad[0], pad[1], pad[2], pad[3]);
+        int extraPad = strokeWidth > 0 ? Math.max(1, strokeWidth / 2) : 0;
+        int pL = pad[0] + extraPad;
+        int pT = pad[1] + extraPad;
+        int pR = pad[2] + extraPad;
+        int pB = pad[3] + extraPad;
+        if (tv.getPaddingLeft() != pL || tv.getPaddingTop() != pT
+                || tv.getPaddingRight() != pR || tv.getPaddingBottom() != pB) {
+            tv.setPadding(pL, pT, pR, pB);
         }
     }
 
