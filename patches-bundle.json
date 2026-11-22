@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-22T02:23:31",
-  "description": "## [3.13.0-dev.26](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.25...v3.13.0-dev.26) (2026-11-22)\n\n### 🐛 Bug Fixes\n\n* **LINE:** remove opaque bottom bar backdrop behind floating pill navigation bar ([0f4d0d2](https://github.com/Zionlion113/morphe-patches/commit/0f4d0d2c902131fa38c2c642749ab9bd2838ed7b))",
-  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.26/patches-3.13.0-dev.26.mpp",
+  "created_at": "2026-11-22T02:59:43",
+  "description": "## [3.13.0-dev.27](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.26...v3.13.0-dev.27) (2026-11-22)\n\n### 🐛 Bug Fixes\n\n* **LINE:** expand ConstraintLayout and LinearLayout tab hosts behind floating pill bar ([ca912fd](https://github.com/Zionlion113/morphe-patches/commit/ca912fd397b82d2bb68e7508ae9ae93a8fd1d087))",
+  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.27/patches-3.13.0-dev.27.mpp",
   "signature_download_url": "",
-  "version": "3.13.0-dev.26"
+  "version": "3.13.0-dev.27"
 }

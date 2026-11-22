@@ -1,3 +1,9 @@
+## [3.13.0-dev.27](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.26...v3.13.0-dev.27) (2026-11-22)
+
+### 🐛 Bug Fixes
+
+* **LINE:** expand ConstraintLayout and LinearLayout tab hosts behind floating pill bar ([ca912fd](https://github.com/Zionlion113/morphe-patches/commit/ca912fd397b82d2bb68e7508ae9ae93a8fd1d087))
+
 ## [3.13.0-dev.26](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.25...v3.13.0-dev.26) (2026-11-22)
 
 ### 🐛 Bug Fixes
