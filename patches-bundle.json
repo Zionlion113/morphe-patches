@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-22T02:59:43",
-  "description": "## [3.13.0-dev.27](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.26...v3.13.0-dev.27) (2026-11-22)\n\n### 🐛 Bug Fixes\n\n* **LINE:** expand ConstraintLayout and LinearLayout tab hosts behind floating pill bar ([ca912fd](https://github.com/Zionlion113/morphe-patches/commit/ca912fd397b82d2bb68e7508ae9ae93a8fd1d087))",
-  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.27/patches-3.13.0-dev.27.mpp",
+  "created_at": "2026-11-22T03:56:43",
+  "description": "## [3.13.0-dev.28](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.27...v3.13.0-dev.28) (2026-11-22)\n\n### 🐛 Bug Fixes\n\n* **LINE:** stretch main viewpager and descend full-screen wrappers behind pill bar ([9dbd6cf](https://github.com/Zionlion113/morphe-patches/commit/9dbd6cf9afea387c11f5fecd2f1aa57ab3e12cd7))",
+  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.28/patches-3.13.0-dev.28.mpp",
   "signature_download_url": "",
-  "version": "3.13.0-dev.27"
+  "version": "3.13.0-dev.28"
 }

@@ -1,3 +1,9 @@
+## [3.13.0-dev.28](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.27...v3.13.0-dev.28) (2026-11-22)
+
+### 🐛 Bug Fixes
+
+* **LINE:** stretch main viewpager and descend full-screen wrappers behind pill bar ([9dbd6cf](https://github.com/Zionlion113/morphe-patches/commit/9dbd6cf9afea387c11f5fecd2f1aa57ab3e12cd7))
+
 ## [3.13.0-dev.27](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.26...v3.13.0-dev.27) (2026-11-22)
 
 ### 🐛 Bug Fixes
