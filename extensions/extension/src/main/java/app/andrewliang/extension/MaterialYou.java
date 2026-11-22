@@ -15,6 +15,7 @@ import android.graphics.Color;
 import android.graphics.ColorFilter;
 import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
+import android.graphics.Insets;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
@@ -35,14 +36,19 @@ import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.NinePatchDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.text.InputType;
 import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.TouchDelegate;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.view.ViewTreeObserver;
 import android.view.Window;
+import android.view.WindowInsets;
 import android.view.WindowInsetsController;
+import android.view.animation.PathInterpolator;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
@@ -213,6 +219,8 @@ final class MaterialYou {
     private static final Map<View, Float> ORIG_NAV_SIBLING_ALPHA = new WeakHashMap<>();
     private static final Map<TextView, Typeface> ORIG_NAV_TEXT_TYPEFACE = new WeakHashMap<>();
     private static final Map<View, float[]> ORIG_NAV_BADGE_TRANSFORM = new WeakHashMap<>();
+    private static final Map<View, Float> ORIG_NAV_TAB_TX = new WeakHashMap<>();
+    private static final Map<View, Boolean> COMPOSE_INSETS_STRIPPED = new WeakHashMap<>();
     private static final Map<View, Boolean> CONTENT_BG_APPLIED = new WeakHashMap<>();
     private static final Map<View, WeakReference<View>> NAV_SCROLL_HOST = new WeakHashMap<>();
     private static final Map<View, ViewTreeObserver.OnScrollChangedListener> NAV_SCROLL_LISTENERS = new WeakHashMap<>();
@@ -903,70 +911,106 @@ final class MaterialYou {
         int appliedStrokeWidth;
     }
 
-    private static final class GestureStripMistDrawable extends Drawable {
-        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private int baseRgb;
-        private boolean dark;
-        private int cachedH = -1;
-        private int cachedKey;
+    private static final float[] NAV_FLOAT_PAIR = new float[2];
 
-        GestureStripMistDrawable(int pageBgColor, boolean dark) {
-            update(pageBgColor, dark);
+    static void computeOuterPillHorizontalBounds(
+            float hostWidth,
+            int tabCount,
+            float density,
+            float[] outLeftRight
+    ) {
+        int safeCount = Math.max(1, tabCount);
+        if (hostWidth <= density * 560.0f) {
+            float margin = density * 20.0f;
+            outLeftRight[0] = margin;
+            outLeftRight[1] = Math.max(margin + density * 120.0f, hostWidth - margin);
+        } else {
+            float maxPillW = Math.min(
+                    hostWidth - density * 44.0f,
+                    safeCount * density * 128.0f + density * 16.0f
+            );
+            float left = Math.max(density * 22.0f, (hostWidth - maxPillW) * 0.5f);
+            outLeftRight[0] = left;
+            outLeftRight[1] = Math.max(left + density * 120.0f, hostWidth - left);
+        }
+    }
+
+    private static final class PillSlotTouchDelegate extends TouchDelegate {
+        private final List<WeakReference<View>> targets = new ArrayList<>(6);
+        private float trackLeft;
+        private float trackRight;
+        private WeakReference<View> activeTargetRef;
+
+        PillSlotTouchDelegate(View host) {
+            super(new Rect(), host);
         }
 
-        void update(int pageBgColor, boolean dark) {
-            int rgb = pageBgColor & 0x00FFFFFF;
-            if (this.baseRgb != rgb || this.dark != dark) {
-                this.baseRgb = rgb;
-                this.dark = dark;
-                this.cachedH = -1;
-                invalidateSelf();
+        void update(List<View> visibleTabs, float trackLeft, float trackRight) {
+            this.trackLeft = trackLeft;
+            this.trackRight = trackRight;
+            boolean same = this.targets.size() == visibleTabs.size();
+            if (same) {
+                for (int i = 0; i < visibleTabs.size(); i++) {
+                    View tab = visibleTabs.get(i);
+                    View click = BlurBars.find(tab, "bnb_button_clickable_area");
+                    View want = (click != null && click.isClickable()) ? click : tab;
+                    if (this.targets.get(i).get() != want) {
+                        same = false;
+                        break;
+                    }
+                }
+            }
+            if (!same) {
+                this.targets.clear();
+                for (int i = 0; i < visibleTabs.size(); i++) {
+                    View tab = visibleTabs.get(i);
+                    View click = BlurBars.find(tab, "bnb_button_clickable_area");
+                    View want = (click != null && click.isClickable()) ? click : tab;
+                    this.targets.add(new WeakReference<>(want));
+                }
             }
         }
 
         @Override
-        public void draw(Canvas canvas) {
-            if (FloatingNavPillDrawable.recordingNavBlur || ProgressiveBlurDrawable.recording) {
-                return;
+        public boolean onTouchEvent(MotionEvent event) {
+            int count = this.targets.size();
+            if (count == 0 || this.trackRight <= this.trackLeft) {
+                return false;
             }
-            Rect b = getBounds();
-            int w = b.width();
-            int h = b.height();
-            if (w <= 0 || h <= 0) {
-                return;
+            int action = event.getActionMasked();
+            float x = event.getX();
+            if (action == MotionEvent.ACTION_DOWN) {
+                this.activeTargetRef = null;
+                if (x < this.trackLeft || x > this.trackRight) {
+                    return false;
+                }
+                float slotW = (this.trackRight - this.trackLeft) / count;
+                int idx = Math.min(count - 1, Math.max(0, (int) ((x - this.trackLeft) / slotW)));
+                View target = this.targets.get(idx).get();
+                if (target == null || !target.isAttachedToWindow()) {
+                    return false;
+                }
+                this.activeTargetRef = new WeakReference<>(target);
+                return forwardCentered(target, event);
             }
-            int key = this.baseRgb ^ (this.dark ? 0x40000000 : 0);
-            if (h != this.cachedH || key != this.cachedKey) {
-                this.cachedH = h;
-                this.cachedKey = key;
-                int maxAlpha = this.dark ? 0xCC : 0xC4;
-                int c0 = this.baseRgb;
-                int c1 = withAlpha(this.baseRgb, Math.round(maxAlpha * 0.22f));
-                int c2 = withAlpha(this.baseRgb, Math.round(maxAlpha * 0.65f));
-                int c3 = withAlpha(this.baseRgb, maxAlpha);
-                this.paint.setShader(new LinearGradient(
-                        0f, b.top, 0f, b.bottom,
-                        new int[]{c0, c1, c2, c3},
-                        new float[]{0f, 0.35f, 0.72f, 1f},
-                        Shader.TileMode.CLAMP
-                ));
+            View active = this.activeTargetRef != null ? this.activeTargetRef.get() : null;
+            if (active == null) {
+                return false;
             }
-            canvas.drawRect(b, this.paint);
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                this.activeTargetRef = null;
+            }
+            return forwardCentered(active, event);
         }
 
-        @Override
-        public void setAlpha(int alpha) {
-            this.paint.setAlpha(alpha);
-        }
-
-        @Override
-        public void setColorFilter(ColorFilter colorFilter) {
-            this.paint.setColorFilter(colorFilter);
-        }
-
-        @Override
-        public int getOpacity() {
-            return PixelFormat.TRANSLUCENT;
+        private static boolean forwardCentered(View target, MotionEvent event) {
+            MotionEvent copy = MotionEvent.obtain(event);
+            try {
+                copy.setLocation(target.getWidth() * 0.5f, target.getHeight() * 0.5f);
+                return target.dispatchTouchEvent(copy);
+            } finally {
+                copy.recycle();
+            }
         }
     }
 
@@ -1063,9 +1107,29 @@ final class MaterialYou {
         ViewGroup tabsParent = resolveDedicatedTabsRow(visibleTabs, ctx);
         View pillHost = tabsParent != null ? tabsParent : bnbBg;
 
+        int selectedIndex = 0;
+        for (int i = 0; i < visibleTabs.size(); i++) {
+            if (isTabSelected(visibleTabs.get(i))) {
+                selectedIndex = i;
+                break;
+            }
+        }
+
+        int activePillFill = 0;
+        if (pillMode) {
+            if (styleNavBar) {
+                activePillFill = palette.dark
+                        ? withAlpha(blend(palette.navBarBg, palette.accent, 0.36f), 0xDF)
+                        : withAlpha(blend(palette.sendBubble, palette.accent, 0.14f), 0xE8);
+            } else {
+                activePillFill = palette.dark ? 0x26FFFFFF : 0x15000000;
+            }
+        }
+
         if (pillMode && !visibleTabs.isEmpty()) {
             applyFloatingPillNavBar(
-                    decorView, ctx, bnbBg, sysNavBg, tabsParent, pillHost, visibleTabs, palette, styleNavBar
+                    decorView, ctx, bnbBg, sysNavBg, tabsParent, pillHost,
+                    visibleTabs, selectedIndex, activePillFill, palette, styleNavBar
             );
             extendMainContentBehindPill(decorView, ctx, pillHost, bnbBg, sysNavBg, visibleTabs, true);
             ensureNavScrollBlurObserver(decorView, pillHost);
@@ -1113,18 +1177,6 @@ final class MaterialYou {
             }
         }
 
-        int activePillFill = 0;
-        int activePillStroke = 0;
-        if (pillMode) {
-            if (styleNavBar) {
-                activePillFill = palette.dark
-                        ? withAlpha(blend(palette.navBarBg, palette.accent, 0.36f), 0xDF)
-                        : withAlpha(blend(palette.sendBubble, palette.accent, 0.14f), 0xE8);
-            } else {
-                activePillFill = palette.dark ? 0x26FFFFFF : 0x15000000;
-            }
-        }
-
         for (int i = 0; i < visibleTabs.size(); i++) {
             View tab = visibleTabs.get(i);
             if (pillMode && tab instanceof ViewGroup) {
@@ -1136,23 +1188,6 @@ final class MaterialYou {
             View iconView = BlurBars.find(tab, "bnb_button_image");
             View textView = BlurBars.find(tab, "bnb_button_text");
             boolean selected = isTabSelected(tab, clickArea, iconView, textView);
-
-            if (pillMode) {
-                if (selected) {
-                    Drawable curBg = tab.getBackground();
-                    ActiveTabPillDrawable ind;
-                    if (curBg instanceof ActiveTabPillDrawable) {
-                        ind = (ActiveTabPillDrawable) curBg;
-                    } else {
-                        ind = new ActiveTabPillDrawable(ctx);
-                        tab.setBackground(ind);
-                    }
-                    ind.bindViews(tab, iconView, textView);
-                    ind.updateColors(activePillFill, activePillStroke);
-                } else if (tab.getBackground() instanceof ActiveTabPillDrawable) {
-                    tab.setBackground(null);
-                }
-            }
 
             if (styleNavBar || pillMode) {
                 int tint;
@@ -1268,9 +1303,7 @@ final class MaterialYou {
             return;
         }
         Drawable bg = v.getBackground();
-        if (bg != null
-                && !(bg instanceof FloatingNavPillDrawable)
-                && !(bg instanceof GestureStripMistDrawable)) {
+        if (bg != null && !(bg instanceof FloatingNavPillDrawable)) {
             if (!ORIG_NAV_CLEARED_BG.containsKey(v)) {
                 ORIG_NAV_CLEARED_BG.put(v, bg);
             }
@@ -1307,8 +1340,7 @@ final class MaterialYou {
                 if (child == null
                         || child == pillHost
                         || BlurBars.isSelfOrAncestor(child, pillHost)
-                        || isAnyTab(child, visibleTabs)
-                        || child.getBackground() instanceof GestureStripMistDrawable) {
+                        || isAnyTab(child, visibleTabs)) {
                     continue;
                 }
                 clearNavWrapperBackground(child);
@@ -1336,6 +1368,8 @@ final class MaterialYou {
             ViewGroup tabsParent,
             View pillHost,
             List<View> visibleTabs,
+            int selectedIndex,
+            int activePillFill,
             Palette palette,
             boolean styleNavBar
     ) {
@@ -1371,25 +1405,14 @@ final class MaterialYou {
             anc = avg.getParent();
         }
 
-        // Paint a soft bottom mist on the gesture strip so the system gesture handle stays clear without a hard edge.
+        // Keep main_navigation_bar_background transparent so Home and Chat content reach the bottom edge.
         if (sysNavBg != null) {
-            if (sysNavBg.getVisibility() != View.VISIBLE) {
-                sysNavBg.setVisibility(View.VISIBLE);
-            }
-            if (sysNavBg.getAlpha() != 1f) {
-                sysNavBg.setAlpha(1f);
-            }
-            if (sysNavBg.getTranslationZ() != 0f) {
-                sysNavBg.setTranslationZ(0f);
-            }
-            Drawable sBg = sysNavBg.getBackground();
-            if (sBg instanceof GestureStripMistDrawable) {
-                ((GestureStripMistDrawable) sBg).update(pageBgColor, palette.dark);
-            } else {
-                if (sBg != null && !ORIG_NAV_CLEARED_BG.containsKey(sysNavBg)) {
-                    ORIG_NAV_CLEARED_BG.put(sysNavBg, sBg);
+            clearNavWrapperBackground(sysNavBg);
+            if (sysNavBg.getAlpha() > 0f) {
+                if (!ORIG_NAV_SIBLING_ALPHA.containsKey(sysNavBg)) {
+                    ORIG_NAV_SIBLING_ALPHA.put(sysNavBg, sysNavBg.getAlpha());
                 }
-                sysNavBg.setBackground(new GestureStripMistDrawable(pageBgColor, palette.dark));
+                sysNavBg.setAlpha(0f);
             }
         }
 
@@ -1469,10 +1492,8 @@ final class MaterialYou {
                 View sib = barParentRoot.getChildAt(i);
                 if (sib == null
                         || sib == pillHost
-                        || sib == sysNavBg
                         || BlurBars.isSelfOrAncestor(sib, pillHost)
-                        || isAnyTab(sib, visibleTabs)
-                        || sib.getBackground() instanceof GestureStripMistDrawable) {
+                        || isAnyTab(sib, visibleTabs)) {
                     continue;
                 }
                 int sH = sib.getHeight();
@@ -1488,32 +1509,54 @@ final class MaterialYou {
             }
         }
 
-        int totalWidth = decorView.getWidth() > 0
-                ? decorView.getWidth()
-                : ctx.getResources().getDisplayMetrics().widthPixels;
-        int tabCount = visibleTabs.size();
-        float perTabDp = tabCount <= 3 ? 112.0f : (tabCount == 4 ? 100.0f : 90.0f);
-        float minEdgeDp = tabCount <= 3 ? 18.0f : 14.0f;
-        int desiredRowWidth = Math.min(
-                totalWidth - BlurBars.dp(ctx, minEdgeDp * 2.0f),
-                BlurBars.dp(ctx, tabCount * perTabDp)
-        );
-        int innerSidePad = Math.max(BlurBars.dp(ctx, minEdgeDp), (totalWidth - desiredRowWidth) / 2);
-
         if (tabsParent != null) {
             int[] origPad = ORIG_NAV_PADDING.get(tabsParent);
-            if (origPad == null) {
-                origPad = new int[]{
-                        tabsParent.getPaddingLeft(),
-                        tabsParent.getPaddingTop(),
-                        tabsParent.getPaddingRight(),
-                        tabsParent.getPaddingBottom()
-                };
-                ORIG_NAV_PADDING.put(tabsParent, origPad);
+            if (origPad != null && (tabsParent.getPaddingLeft() != origPad[0] || tabsParent.getPaddingRight() != origPad[2])) {
+                tabsParent.setPadding(origPad[0], origPad[1], origPad[2], origPad[3]);
             }
-            if (tabsParent.getPaddingLeft() != innerSidePad || tabsParent.getPaddingRight() != innerSidePad) {
-                tabsParent.setPadding(innerSidePad, origPad[1], innerSidePad, origPad[3]);
+        }
+
+        float density = ctx.getResources().getDisplayMetrics().density;
+        int hostWidth = pillHost.getWidth() > 0
+                ? pillHost.getWidth()
+                : (decorView.getWidth() > 0 ? decorView.getWidth() : ctx.getResources().getDisplayMetrics().widthPixels);
+        int tabCount = visibleTabs.size();
+        computeOuterPillHorizontalBounds(hostWidth, tabCount, density, NAV_FLOAT_PAIR);
+        float pillLeft = NAV_FLOAT_PAIR[0];
+        float pillRight = NAV_FLOAT_PAIR[1];
+        float concentricGap = density * 5.0f;
+        float trackLeft = pillLeft + concentricGap;
+        float trackRight = Math.max(trackLeft + density * 60.0f, pillRight - concentricGap);
+        float slotW = (trackRight - trackLeft) / Math.max(1, tabCount);
+
+        // Align every tab to the exact center of its equal Material Design 3 toolbar slot.
+        if (pillHost.getWidth() > 0) {
+            pillHost.getLocationInWindow(NAV_LOC_A);
+            for (int i = 0; i < tabCount; i++) {
+                View tab = visibleTabs.get(i);
+                if (tab == null || tab.getWidth() <= 0) {
+                    continue;
+                }
+                if (!ORIG_NAV_TAB_TX.containsKey(tab)) {
+                    ORIG_NAV_TAB_TX.put(tab, tab.getTranslationX());
+                }
+                tab.getLocationInWindow(NAV_LOC_B);
+                float naturalWinCenterX = (NAV_LOC_B[0] - tab.getTranslationX()) + tab.getWidth() * 0.5f;
+                float targetWinCenterX = NAV_LOC_A[0] + trackLeft + (i + 0.5f) * slotW;
+                float desiredTx = targetWinCenterX - naturalWinCenterX;
+                if (Math.abs(tab.getTranslationX() - desiredTx) > 0.5f) {
+                    tab.setTranslationX(desiredTx);
+                }
             }
+            TouchDelegate existingTd = pillHost.getTouchDelegate();
+            PillSlotTouchDelegate slotTd;
+            if (existingTd instanceof PillSlotTouchDelegate) {
+                slotTd = (PillSlotTouchDelegate) existingTd;
+            } else {
+                slotTd = new PillSlotTouchDelegate(pillHost);
+                pillHost.setTouchDelegate(slotTd);
+            }
+            slotTd.update(visibleTabs, trackLeft, trackRight);
         }
 
         float liftY = -BlurBars.dp(ctx, 2.0f);
@@ -1541,8 +1584,8 @@ final class MaterialYou {
             rimAccent = palette.dark ? 0xFFFFFFFF : 0xFF3E4752;
         }
         pillDrawable.update(
-                visibleTabs, viewPager, mainTabContainer, bnbBg, sysNavBg,
-                pageBgColor, baseSurface, rimAccent, palette.dark, innerSidePad
+                visibleTabs, selectedIndex, activePillFill, viewPager, mainTabContainer, bnbBg, sysNavBg,
+                pageBgColor, baseSurface, rimAccent, palette.dark, Math.round(pillLeft)
         );
     }
 
@@ -1556,6 +1599,9 @@ final class MaterialYou {
         if (bnbBg.getBackground() instanceof FloatingNavPillDrawable) {
             bnbBg.setBackground(null);
             NAV_APPLIED.remove(bnbBg);
+        }
+        if (bnbBg.getTouchDelegate() instanceof PillSlotTouchDelegate) {
+            bnbBg.setTouchDelegate(null);
         }
         if (bnbBg.getAlpha() != 1f) {
             bnbBg.setAlpha(1f);
@@ -1577,17 +1623,15 @@ final class MaterialYou {
         if (bnbBg.getTranslationZ() != 0f) {
             bnbBg.setTranslationZ(0f);
         }
-        if (sysNavBg != null) {
-            if (sysNavBg.getBackground() instanceof GestureStripMistDrawable) {
-                sysNavBg.setBackground(null);
-            }
-            if (sysNavBg.getAlpha() != 1f) {
-                sysNavBg.setAlpha(1f);
-            }
+        if (sysNavBg != null && sysNavBg.getAlpha() != 1f) {
+            sysNavBg.setAlpha(1f);
         }
         if (tabsParent != null) {
             if (tabsParent.getBackground() instanceof FloatingNavPillDrawable) {
                 tabsParent.setBackground(null);
+            }
+            if (tabsParent.getTouchDelegate() instanceof PillSlotTouchDelegate) {
+                tabsParent.setTouchDelegate(null);
             }
             int[] origPad = ORIG_NAV_PADDING.remove(tabsParent);
             if (origPad != null) {
@@ -1652,16 +1696,19 @@ final class MaterialYou {
         }
         ORIG_NAV_BADGE_TRANSFORM.clear();
 
+        for (Map.Entry<View, Float> entry : ORIG_NAV_TAB_TX.entrySet()) {
+            View tv = entry.getKey();
+            Float tx = entry.getValue();
+            if (tv != null && tx != null) {
+                tv.setTranslationX(tx);
+            }
+        }
+        ORIG_NAV_TAB_TX.clear();
+
         if (decorView != null) {
             View contentRoot = decorView.findViewById(android.R.id.content);
             if (contentRoot != null && Boolean.TRUE.equals(CONTENT_BG_APPLIED.remove(contentRoot))) {
                 contentRoot.setBackground(null);
-            }
-        }
-        for (int i = 0; i < visibleTabs.size(); i++) {
-            View tab = visibleTabs.get(i);
-            if (tab.getBackground() instanceof ActiveTabPillDrawable) {
-                tab.setBackground(null);
             }
         }
     }
@@ -1719,6 +1766,9 @@ final class MaterialYou {
             return true;
         }
         String cn = v.getClass().getName();
+        if (cn.contains("ViewPager2$RecyclerViewImpl")) {
+            return false;
+        }
         return cn.contains("RecyclerView")
                 || cn.contains("NestedScrollView")
                 || cn.contains("ListView")
@@ -1752,8 +1802,7 @@ final class MaterialYou {
         if (v == null
                 || v == pillHost
                 || BlurBars.isSelfOrAncestor(v, pillHost)
-                || isAnyTab(v, visibleTabs)
-                || v.getBackground() instanceof GestureStripMistDrawable) {
+                || isAnyTab(v, visibleTabs)) {
             return;
         }
         clearNavWrapperBackground(v);
@@ -2062,7 +2111,7 @@ final class MaterialYou {
             int decorBottom,
             int maxBarH
     ) {
-        if (target == null || parent == null || target.isLayoutRequested()) {
+        if (target == null || parent == null) {
             return;
         }
         String parentClass = parent.getClass().getName();
@@ -2073,6 +2122,11 @@ final class MaterialYou {
         } else if (!parentClass.contains("ViewPager") && !parentClass.contains("RecyclerView")) {
             expandViewToDecorBottom(target, decorBottom);
         }
+    }
+
+    private static boolean isMultiPageHost(View v) {
+        String cn = v.getClass().getName();
+        return cn.contains("ViewPager") || cn.contains("ViewPager2$RecyclerViewImpl");
     }
 
     private static void walkAndExpandContentTree(
@@ -2089,13 +2143,27 @@ final class MaterialYou {
             int tolPx,
             int depth
     ) {
-        if (vg == null || depth > 6 || isScrollableContainer(vg)) {
+        if (vg == null || depth > 8 || isScrollableContainer(vg)) {
             return;
         }
         vg.setClipChildren(false);
         vg.setClipToPadding(false);
         vg.setClipToOutline(false);
         stripContainerBottomInsetPadding(vg, decorBottom, minInsetPx);
+
+        if (isMultiPageHost(vg)) {
+            int pCount = vg.getChildCount();
+            for (int i = 0; i < pCount; i++) {
+                View page = vg.getChildAt(i);
+                if (page instanceof ViewGroup && page.getVisibility() == View.VISIBLE) {
+                    walkAndExpandContentTree(
+                            (ViewGroup) page, pillHost, bnbBg, sysNavBg, visibleTabs,
+                            decorW, decorH, decorBottom, maxBarH, minInsetPx, tolPx, depth + 1
+                    );
+                }
+            }
+            return;
+        }
 
         int count = vg.getChildCount();
         View bestContentChild = null;
@@ -2163,52 +2231,92 @@ final class MaterialYou {
         }
 
         if (bestContentChild instanceof ViewGroup) {
-            String cn = bestContentChild.getClass().getName();
-            if (cn.contains("ViewPager")) {
-                ViewGroup pager = (ViewGroup) bestContentChild;
-                pager.setClipChildren(false);
-                pager.setClipToPadding(false);
-                pager.setClipToOutline(false);
-                int pCount = pager.getChildCount();
-                for (int i = 0; i < pCount; i++) {
-                    View page = pager.getChildAt(i);
-                    if (page instanceof ViewGroup && page.getVisibility() == View.VISIBLE && page.isShown()) {
-                        walkAndExpandContentTree(
-                                (ViewGroup) page, pillHost, bnbBg, sysNavBg, visibleTabs,
-                                decorW, decorH, decorBottom, maxBarH, minInsetPx, tolPx, depth + 1
-                        );
+            walkAndExpandContentTree(
+                    (ViewGroup) bestContentChild, pillHost, bnbBg, sysNavBg, visibleTabs,
+                    decorW, decorH, decorBottom, maxBarH, minInsetPx, tolPx, depth + 1
+            );
+        }
+    }
+
+    private static void collectPageContentLeaves(
+            View view,
+            int minHeight,
+            List<View> outScrollLists,
+            List<View> outComposeHosts
+    ) {
+        if (view == null || view.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        String name = view.getClass().getName();
+        if (isMultiPageHost(view) && view instanceof ViewGroup) {
+            ViewGroup pager = (ViewGroup) view;
+            int pCount = pager.getChildCount();
+            for (int i = 0; i < pCount; i++) {
+                View page = pager.getChildAt(i);
+                if (page != null && page.getVisibility() == View.VISIBLE) {
+                    if (!isMultiPageHost(page) && page.getHeight() >= minHeight) {
+                        outComposeHosts.add(page);
                     }
+                    collectPageContentLeaves(page, minHeight, outScrollLists, outComposeHosts);
                 }
-            } else {
-                walkAndExpandContentTree(
-                        (ViewGroup) bestContentChild, pillHost, bnbBg, sysNavBg, visibleTabs,
-                        decorW, decorH, decorBottom, maxBarH, minInsetPx, tolPx, depth + 1
-                );
+            }
+            return;
+        }
+        boolean isScrollList = name.endsWith("RecyclerView")
+                || view instanceof ScrollView
+                || view instanceof android.widget.AbsListView
+                || name.endsWith("NestedScrollView");
+        if (isScrollList && view.getHeight() >= minHeight && view.getHeight() > 0) {
+            outScrollLists.add(view);
+            return;
+        }
+        boolean isComposeWrapper = (name.endsWith(".ComposeView") || name.contains("AbstractComposeView"))
+                && !name.contains("AndroidComposeView");
+        if (isComposeWrapper && view.getHeight() >= minHeight && view.getHeight() > 0) {
+            outComposeHosts.add(view);
+            return;
+        }
+        if (view instanceof ViewGroup && !name.contains("AndroidComposeView")) {
+            ViewGroup group = (ViewGroup) view;
+            int n = group.getChildCount();
+            for (int i = 0; i < n; i++) {
+                collectPageContentLeaves(group.getChildAt(i), minHeight, outScrollLists, outComposeHosts);
             }
         }
     }
 
-    private static View largestScrollableList(View view, int minHeight) {
-        View best = null;
-        if (view instanceof ViewGroup && view.getVisibility() == View.VISIBLE) {
-            String name = view.getClass().getName();
-            boolean isList = name.endsWith("RecyclerView")
-                    || view instanceof ScrollView
-                    || view instanceof android.widget.AbsListView
-                    || name.endsWith("NestedScrollView");
-            if (isList && view.getHeight() >= minHeight && view.getHeight() > 0) {
-                return view;
-            }
-            ViewGroup group = (ViewGroup) view;
-            int n = group.getChildCount();
-            for (int i = 0; i < n; i++) {
-                View found = largestScrollableList(group.getChildAt(i), minHeight);
-                if (found != null && (best == null || found.getHeight() > best.getHeight())) {
-                    best = found;
-                }
-            }
+    private static void stripComposeBottomNavInsets(View composeHost) {
+        if (composeHost == null || Build.VERSION.SDK_INT < 30) {
+            return;
         }
-        return best;
+        if (Boolean.TRUE.equals(COMPOSE_INSETS_STRIPPED.get(composeHost))) {
+            return;
+        }
+        try {
+            Context c = composeHost.getContext();
+            int compatTag = c.getResources().getIdentifier("tag_on_apply_window_insets", "id", c.getPackageName());
+            if (compatTag != 0 && composeHost.getTag(compatTag) != null) {
+                return;
+            }
+        } catch (Throwable ignored) {
+        }
+        COMPOSE_INSETS_STRIPPED.put(composeHost, Boolean.TRUE);
+        composeHost.setOnApplyWindowInsetsListener((v, insets) -> {
+            if (insets == null || !LineSettings.navBarPill()) {
+                return v.onApplyWindowInsets(insets);
+            }
+            int type = WindowInsets.Type.navigationBars();
+            Insets nav = insets.getInsets(type);
+            Insets navIgn = insets.getInsetsIgnoringVisibility(type);
+            if (nav.bottom > 0 || navIgn.bottom > 0) {
+                insets = new WindowInsets.Builder(insets)
+                        .setInsets(type, Insets.of(nav.left, nav.top, nav.right, 0))
+                        .setInsetsIgnoringVisibility(type, Insets.of(navIgn.left, navIgn.top, navIgn.right, 0))
+                        .build();
+            }
+            return v.onApplyWindowInsets(insets);
+        });
+        composeHost.requestApplyInsets();
     }
 
     private static void applyListPillPadding(View list, View stopAncestor, int desiredPad) {
@@ -2307,6 +2415,14 @@ final class MaterialYou {
             boolean pillActive
     ) {
         if (!pillActive) {
+            for (View cv : COMPOSE_INSETS_STRIPPED.keySet()) {
+                if (cv != null) {
+                    cv.setOnApplyWindowInsetsListener(null);
+                    cv.requestApplyInsets();
+                }
+            }
+            COMPOSE_INSETS_STRIPPED.clear();
+
             for (Map.Entry<View, Integer> e : ORIG_NAV_LIST_PAD.entrySet()) {
                 View v = e.getKey();
                 Integer added = e.getValue();
@@ -2393,11 +2509,11 @@ final class MaterialYou {
         }
 
         int maxBarH = BlurBars.dp(ctx, 165.0f);
-        int minInsetPx = BlurBars.dp(ctx, 32.0f);
+        int minInsetPx = BlurBars.dp(ctx, 12.0f);
         int tolPx = BlurBars.dp(ctx, 4.0f);
         int desiredListPad = Math.max(0, decorBottom - pillTopWinY) + BlurBars.dp(ctx, 10.0f);
 
-        // Stretch the main tab ViewPager (R.id.viewpager) and its parent chain to decorBottom.
+        // Stretch the main tab ViewPager (R.id.viewpager) and every mounted scrollable or Compose leaf inside it.
         View viewPager = BlurBars.find(decorView, "viewpager");
         if (viewPager != null && viewPager.isAttachedToWindow()) {
             stretchChainUpToDecor(
@@ -2408,16 +2524,27 @@ final class MaterialYou {
                 pagerGroup.setClipToPadding(false);
                 pagerGroup.setClipChildren(false);
                 pagerGroup.setClipToOutline(false);
-                int pCount = pagerGroup.getChildCount();
-                for (int i = 0; i < pCount; i++) {
-                    View page = pagerGroup.getChildAt(i);
-                    if (page != null && page.getHeight() > 0) {
-                        View list = largestScrollableList(page, page.getHeight() / 2);
-                        if (list != null) {
-                            applyListPillPadding(list, viewPager, desiredListPad);
-                        }
-                    }
+                List<View> scrollLeaves = new ArrayList<>(4);
+                List<View> composeLeaves = new ArrayList<>(4);
+                collectPageContentLeaves(pagerGroup, Math.max(1, decorH / 3), scrollLeaves, composeLeaves);
+                for (int i = 0; i < scrollLeaves.size(); i++) {
+                    View list = scrollLeaves.get(i);
+                    stretchChainUpToDecor(
+                            list, decorView, bnbBg, sysNavBg, pillHost, decorBottom, maxBarH, minInsetPx, tolPx
+                    );
+                    applyListPillPadding(list, viewPager, desiredListPad);
                 }
+                for (int i = 0; i < composeLeaves.size(); i++) {
+                    View composeHost = composeLeaves.get(i);
+                    stretchChainUpToDecor(
+                            composeHost, decorView, bnbBg, sysNavBg, pillHost, decorBottom, maxBarH, minInsetPx, tolPx
+                    );
+                    stripComposeBottomNavInsets(composeHost);
+                }
+                walkAndExpandContentTree(
+                        pagerGroup, pillHost, bnbBg, sysNavBg, visibleTabs,
+                        decorW, decorH, decorBottom, maxBarH, minInsetPx, tolPx, 0
+                );
             }
         }
 
@@ -2502,114 +2629,6 @@ final class MaterialYou {
         outTopBottom[1] = bottom;
     }
 
-    static float computeActivePillWidth(int tabWidth, float pillHeight, float density) {
-        float desiredW = Math.max(pillHeight * 2.08f, density * 88.0f);
-        float maxAllowedW = Math.max(density * 48.0f, tabWidth - density * 8.0f);
-        return Math.min(desiredW, maxAllowedW);
-    }
-
-    /** Concentric Material 3 horizontal capsule indicator behind the selected bottom navigation tab. */
-    private static final class ActiveTabPillDrawable extends Drawable {
-        private final float density;
-        private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final RectF rect = new RectF();
-        private final int[] locA = new int[2];
-        private final int[] locB = new int[2];
-        private final float[] topBottom = new float[2];
-        private WeakReference<View> tabRef;
-        private WeakReference<View> iconRef;
-        private WeakReference<View> textRef;
-        private int fillColor;
-        private int strokeColor;
-
-        ActiveTabPillDrawable(Context ctx) {
-            this.density = ctx.getResources().getDisplayMetrics().density;
-            this.fillPaint.setStyle(Paint.Style.FILL);
-            this.strokePaint.setStyle(Paint.Style.STROKE);
-            this.strokePaint.setStrokeWidth(Math.max(1.0f, this.density * 0.85f));
-        }
-
-        void bindViews(View tab, View iconView, View textView) {
-            if (this.tabRef == null || this.tabRef.get() != tab) {
-                this.tabRef = new WeakReference<>(tab);
-            }
-            if (this.iconRef == null || this.iconRef.get() != iconView) {
-                this.iconRef = iconView != null ? new WeakReference<>(iconView) : null;
-            }
-            if (this.textRef == null || this.textRef.get() != textView) {
-                this.textRef = textView != null ? new WeakReference<>(textView) : null;
-            }
-        }
-
-        void updateColors(int fill, int stroke) {
-            if (this.fillColor != fill || this.strokeColor != stroke) {
-                this.fillColor = fill;
-                this.strokeColor = stroke;
-                this.fillPaint.setColor(fill);
-                this.strokePaint.setColor(stroke);
-                invalidateSelf();
-            }
-        }
-
-        @Override
-        public void draw(Canvas canvas) {
-            if (FloatingNavPillDrawable.recordingNavBlur) {
-                return;
-            }
-            Rect b = getBounds();
-            int w = b.width();
-            int h = b.height();
-            if (w <= 0 || h <= 0) {
-                return;
-            }
-            View tab = this.tabRef != null ? this.tabRef.get() : null;
-            View icon = this.iconRef != null ? this.iconRef.get() : null;
-            View text = this.textRef != null ? this.textRef.get() : null;
-            float top;
-            float bottom;
-            if (tab != null && tab.getHeight() > 0) {
-                computeActivePillVerticalBounds(tab, icon, text, this.density, this.locA, this.locB, this.topBottom);
-                top = b.top + this.topBottom[0];
-                bottom = b.top + this.topBottom[1];
-            } else {
-                bottom = b.bottom - this.density * 3.0f;
-                top = Math.max(b.top, bottom - this.density * 42.0f);
-            }
-            float pillH = bottom - top;
-            float pillW = computeActivePillWidth(w, pillH, this.density);
-            float left = b.left + (w - pillW) * 0.5f;
-            float right = left + pillW;
-            if (right <= left || bottom <= top) {
-                return;
-            }
-            this.rect.set(left, top, right, bottom);
-            float radius = Math.min(this.rect.width(), this.rect.height()) * 0.5f;
-            canvas.drawRoundRect(this.rect, radius, radius, this.fillPaint);
-            if ((this.strokeColor >>> 24) != 0) {
-                float halfStroke = this.strokePaint.getStrokeWidth() * 0.5f;
-                this.rect.inset(halfStroke, halfStroke);
-                float sr = Math.max(0f, Math.min(this.rect.width(), this.rect.height()) * 0.5f);
-                canvas.drawRoundRect(this.rect, sr, sr, this.strokePaint);
-            }
-        }
-
-        @Override
-        public void setAlpha(int alpha) {
-            this.fillPaint.setAlpha(alpha);
-        }
-
-        @Override
-        public void setColorFilter(ColorFilter colorFilter) {
-            this.fillPaint.setColorFilter(colorFilter);
-        }
-
-        @Override
-        public int getOpacity() {
-            return PixelFormat.TRANSLUCENT;
-        }
-    }
-
     private static final class TabRefs {
         final WeakReference<View> tabRef;
         final WeakReference<View> iconRef;
@@ -2631,6 +2650,8 @@ final class MaterialYou {
      */
     private static final class FloatingNavPillDrawable extends Drawable {
         static boolean recordingNavBlur;
+        private static final PathInterpolator SLOT_INTERPOLATOR = new PathInterpolator(0.2f, 0.0f, 0.0f, 1.0f);
+        private static final long SLIDE_DURATION_MS = 280L;
 
         private final WeakReference<View> hostRef;
         private final WeakReference<View> decorRef;
@@ -2639,9 +2660,11 @@ final class MaterialYou {
         private final List<WeakReference<View>> rawTabRefs = new ArrayList<>(6);
         private final Paint shadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint activeFillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint innerRimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint rimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF pillRect = new RectF();
+        private final RectF activeRect = new RectF();
         private final RectF innerRimRect = new RectF();
         private final RectF rimRect = new RectF();
         private final RectF shadowRect = new RectF();
@@ -2650,6 +2673,7 @@ final class MaterialYou {
         private final int[] tabLoc = new int[2];
         private final int[] childLoc = new int[2];
         private final float[] tabTopBot = new float[2];
+        private final float[] leftRight = new float[2];
 
         private Object gpu;
         private WeakReference<View> viewPagerRef;
@@ -2659,8 +2683,14 @@ final class MaterialYou {
         private int pageBgColor;
         private int surfaceRgb;
         private int rimAccentRgb;
+        private int activeFillColor;
         private boolean dark;
         private int fallbackSideInset;
+        private int animToSlot = -1;
+        private float animFromSlot = 0f;
+        private float animatedSlot = -1f;
+        private long animStartUptimeMs;
+        private boolean animating;
         private boolean blurDirty = true;
         private float cachedLeft = -1f;
         private float cachedTop = -1f;
@@ -2675,6 +2705,7 @@ final class MaterialYou {
             this.density = host.getResources().getDisplayMetrics().density;
             this.shadowPaint.setStyle(Paint.Style.FILL);
             this.fillPaint.setStyle(Paint.Style.FILL);
+            this.activeFillPaint.setStyle(Paint.Style.FILL);
             this.innerRimPaint.setStyle(Paint.Style.STROKE);
             this.innerRimPaint.setStrokeWidth(Math.max(1.0f, this.density * 1.0f));
             this.rimPaint.setStyle(Paint.Style.STROKE);
@@ -2683,6 +2714,8 @@ final class MaterialYou {
 
         void update(
                 List<View> visibleTabs,
+                int selectedIndex,
+                int activeFillColor,
                 View viewPager,
                 View mainTabContainer,
                 View bnbBg,
@@ -2705,14 +2738,35 @@ final class MaterialYou {
             if (this.sysNavBgRef == null || this.sysNavBgRef.get() != sysNavBg) {
                 this.sysNavBgRef = sysNavBg != null ? new WeakReference<>(sysNavBg) : null;
             }
-            boolean changed = this.pageBgColor != pageBgColor
+
+            int newCount = visibleTabs.size();
+            boolean countChanged = this.tabSlots.size() != newCount;
+            int clampedSel = newCount > 0 ? Math.min(newCount - 1, Math.max(0, selectedIndex)) : 0;
+            boolean slotChanged = false;
+            if (this.animatedSlot < 0f || countChanged) {
+                this.animFromSlot = clampedSel;
+                this.animToSlot = clampedSel;
+                this.animatedSlot = clampedSel;
+                this.animating = false;
+                slotChanged = true;
+            } else if (clampedSel != this.animToSlot) {
+                this.animFromSlot = this.animatedSlot;
+                this.animToSlot = clampedSel;
+                this.animStartUptimeMs = SystemClock.uptimeMillis();
+                this.animating = true;
+                slotChanged = true;
+            }
+
+            boolean changed = slotChanged
+                    || this.activeFillColor != activeFillColor
+                    || this.pageBgColor != pageBgColor
                     || this.surfaceRgb != surfaceRgb
                     || this.rimAccentRgb != rimAccentRgb
                     || this.dark != dark
                     || this.fallbackSideInset != sideInset
-                    || this.tabSlots.size() != visibleTabs.size();
+                    || countChanged;
             if (!changed) {
-                for (int i = 0; i < visibleTabs.size(); i++) {
+                for (int i = 0; i < newCount; i++) {
                     if (this.tabSlots.get(i).tabRef.get() != visibleTabs.get(i)) {
                         changed = true;
                         break;
@@ -2720,6 +2774,8 @@ final class MaterialYou {
                 }
             }
             if (changed) {
+                this.activeFillColor = activeFillColor;
+                this.activeFillPaint.setColor(activeFillColor);
                 this.pageBgColor = pageBgColor;
                 this.surfaceRgb = surfaceRgb;
                 this.rimAccentRgb = rimAccentRgb;
@@ -2727,7 +2783,7 @@ final class MaterialYou {
                 this.fallbackSideInset = sideInset;
                 this.tabSlots.clear();
                 this.rawTabRefs.clear();
-                for (int i = 0; i < visibleTabs.size(); i++) {
+                for (int i = 0; i < newCount; i++) {
                     View t = visibleTabs.get(i);
                     this.tabSlots.add(new TabRefs(t));
                     this.rawTabRefs.add(new WeakReference<>(t));
@@ -2777,12 +2833,11 @@ final class MaterialYou {
             }
 
             host.getLocationInWindow(this.hostLoc);
-            float minInnerLeft = Float.MAX_VALUE;
-            float maxInnerRight = -Float.MAX_VALUE;
             float minInnerTop = Float.MAX_VALUE;
             float maxInnerBottom = -Float.MAX_VALUE;
 
-            for (int i = 0; i < this.tabSlots.size(); i++) {
+            int slotCount = this.tabSlots.size();
+            for (int i = 0; i < slotCount; i++) {
                 TabRefs slot = this.tabSlots.get(i);
                 View tab = slot.tabRef.get();
                 if (tab != null && tab.getVisibility() == View.VISIBLE && tab.getWidth() > 0 && tab.getHeight() > 0) {
@@ -2791,38 +2846,26 @@ final class MaterialYou {
                     computeActivePillVerticalBounds(
                             tab, icon, text, this.density, this.tabLoc, this.childLoc, this.tabTopBot
                     );
-                    float relTabX = this.tabLoc[0] - this.hostLoc[0];
                     float relTabY = this.tabLoc[1] - this.hostLoc[1];
                     float innerTop = relTabY + this.tabTopBot[0];
                     float innerBottom = relTabY + this.tabTopBot[1];
-                    float innerH = innerBottom - innerTop;
-                    float innerW = computeActivePillWidth(tab.getWidth(), innerH, this.density);
-                    float innerLeft = relTabX + (tab.getWidth() - innerW) * 0.5f;
-                    float innerRight = innerLeft + innerW;
-
-                    if (innerLeft < minInnerLeft) minInnerLeft = innerLeft;
-                    if (innerRight > maxInnerRight) maxInnerRight = innerRight;
                     if (innerTop < minInnerTop) minInnerTop = innerTop;
                     if (innerBottom > maxInnerBottom) maxInnerBottom = innerBottom;
                 }
             }
 
-            float concentricGap = this.density * 5.5f;
-            float minScreenMargin = this.density * 12.0f;
-            float left;
-            float right;
+            computeOuterPillHorizontalBounds(w, slotCount, this.density, this.leftRight);
+            float left = this.leftRight[0];
+            float right = this.leftRight[1];
+            float concentricGap = this.density * 5.0f;
             float top;
             float bottom;
-            if (minInnerLeft < maxInnerRight && minInnerTop < maxInnerBottom) {
-                left = Math.max(minScreenMargin, minInnerLeft - concentricGap);
-                right = Math.min(w - minScreenMargin, maxInnerRight + concentricGap);
+            if (minInnerTop < maxInnerBottom) {
                 top = minInnerTop - concentricGap;
                 bottom = maxInnerBottom + concentricGap;
             } else {
-                left = Math.min(this.fallbackSideInset, w * 0.16f);
-                right = Math.max(left + this.density * 160.0f, w - left);
                 bottom = h - this.density * 2.0f;
-                top = bottom - this.density * 54.0f;
+                top = bottom - this.density * 52.0f;
             }
             if (right - left <= this.density * 40.0f || bottom - top <= this.density * 24.0f) {
                 return;
@@ -2837,27 +2880,41 @@ final class MaterialYou {
 
             ensureShaders(left, top, right, bottom, radius, canBlur);
 
-            // Clip out the pill interior so the exterior drop shadow never darkens the frosted glass.
+            // Clip out the pill interior and draw a soft, natural, low-opacity exterior drop shadow.
             int shadowSave = canvas.save();
             if (Build.VERSION.SDK_INT >= 26) {
                 canvas.clipOutPath(this.clipPath);
             }
-            int shadowRgb = this.dark ? 0x000000 : 0x0C1820;
-            int stepAlpha = this.dark ? 0x0E : 0x07;
+            int stepAlpha = this.dark ? 0x08 : 0x03;
             for (int step = 6; step >= 1; step--) {
-                float spread = step * this.density * 1.65f;
-                float dy = step * this.density * 0.95f;
+                float spread = step * this.density * 1.9f;
+                float dy = step * this.density * 0.75f;
                 this.shadowRect.set(
-                        left - spread * 0.55f,
-                        top + dy * 0.35f - spread * 0.15f,
-                        right + spread * 0.55f,
+                        left - spread * 0.6f,
+                        top + dy * 0.25f - spread * 0.2f,
+                        right + spread * 0.6f,
                         bottom + dy + spread * 0.65f
                 );
-                this.shadowPaint.setColor(withAlpha(shadowRgb, stepAlpha));
-                float sr = radius + spread * 0.55f;
+                this.shadowPaint.setColor(withAlpha(0x000000, stepAlpha));
+                float sr = radius + spread * 0.6f;
                 canvas.drawRoundRect(this.shadowRect, sr, sr, this.shadowPaint);
             }
             canvas.restoreToCount(shadowSave);
+
+            float extraStretchFactor = 0f;
+            if (this.animating) {
+                long elapsed = SystemClock.uptimeMillis() - this.animStartUptimeMs;
+                float rawT = Math.min(1.0f, Math.max(0.0f, (float) elapsed / SLIDE_DURATION_MS));
+                float eased = SLOT_INTERPOLATOR.getInterpolation(rawT);
+                this.animatedSlot = this.animFromSlot + (this.animToSlot - this.animFromSlot) * eased;
+                float bell = 4.0f * rawT * (1.0f - rawT);
+                float travel = Math.min(2.0f, Math.abs(this.animToSlot - this.animFromSlot));
+                extraStretchFactor = 0.14f * bell * (0.65f + 0.35f * travel);
+                if (rawT >= 1.0f) {
+                    this.animatedSlot = this.animToSlot;
+                    this.animating = false;
+                }
+            }
 
             int save = canvas.save();
             canvas.clipPath(this.clipPath);
@@ -2888,6 +2945,27 @@ final class MaterialYou {
                 }
                 this.blurDirty = false;
                 canvas.drawRect(this.pillRect, this.fillPaint);
+
+                // Draw the Material Design 3 sliding tonal capsule behind the selected tab slot.
+                if (slotCount > 0 && (this.activeFillColor >>> 24) != 0) {
+                    float trackLeft = left + concentricGap;
+                    float trackRight = right - concentricGap;
+                    float trackW = trackRight - trackLeft;
+                    float slotW = trackW / slotCount;
+                    float slotPos = this.animatedSlot >= 0f ? this.animatedSlot : 0f;
+                    float activeCenterX = trackLeft + (slotPos + 0.5f) * slotW;
+                    float baseInnerW = Math.min(slotW - this.density * 2.5f, this.density * 126.0f);
+                    float curInnerW = Math.min(trackW, baseInnerW + slotW * extraStretchFactor);
+                    float actLeft = Math.max(trackLeft, Math.min(trackRight - curInnerW, activeCenterX - curInnerW * 0.5f));
+                    float actRight = actLeft + curInnerW;
+                    float actTop = top + concentricGap;
+                    float actBottom = bottom - concentricGap;
+                    if (actRight > actLeft && actBottom > actTop) {
+                        this.activeRect.set(actLeft, actTop, actRight, actBottom);
+                        float actRadius = Math.min(this.activeRect.width(), this.activeRect.height()) * 0.5f;
+                        canvas.drawRoundRect(this.activeRect, actRadius, actRadius, this.activeFillPaint);
+                    }
+                }
             } finally {
                 canvas.restoreToCount(save);
             }
@@ -2896,6 +2974,10 @@ final class MaterialYou {
             canvas.drawRoundRect(this.innerRimRect, innerRimRadius, innerRimRadius, this.innerRimPaint);
             float rimRadius = Math.max(0f, Math.min(this.rimRect.width(), this.rimRect.height()) * 0.5f);
             canvas.drawRoundRect(this.rimRect, rimRadius, rimRadius, this.rimPaint);
+
+            if (this.animating) {
+                host.postInvalidateOnAnimation();
+            }
         }
 
         private void ensureShaders(float left, float top, float right, float bottom, float radius, boolean canBlur) {
@@ -2947,13 +3029,13 @@ final class MaterialYou {
             if (this.dark) {
                 this.innerRimPaint.setShader(new LinearGradient(
                         left, top, left, bottom,
-                        new int[]{0x40FFFFFF, 0x10FFFFFF, 0x20FFFFFF},
+                        new int[]{0x38FFFFFF, 0x0EFFFFFF, 0x1AFFFFFF},
                         new float[]{0f, 0.48f, 1f},
                         Shader.TileMode.CLAMP
                 ));
-                int topRim = withAlpha(blend(0xFFFFFFFF, this.rimAccentRgb, 0.22f), 0x34);
-                int midRim = withAlpha(this.rimAccentRgb, 0x1A);
-                int botRim = 0x14FFFFFF;
+                int topRim = withAlpha(blend(0xFFFFFFFF, this.rimAccentRgb, 0.20f), 0x26);
+                int midRim = withAlpha(this.rimAccentRgb, 0x14);
+                int botRim = 0x10FFFFFF;
                 this.rimPaint.setShader(new LinearGradient(
                         left, top, left, bottom,
                         new int[]{topRim, midRim, botRim},
@@ -2963,14 +3045,14 @@ final class MaterialYou {
             } else {
                 this.innerRimPaint.setShader(new LinearGradient(
                         left, top, left, bottom,
-                        new int[]{0xD0FFFFFF, 0x48FFFFFF, 0x80FFFFFF},
+                        new int[]{0xD4FFFFFF, 0x50FFFFFF, 0x88FFFFFF},
                         new float[]{0f, 0.5f, 1f},
                         Shader.TileMode.CLAMP
                 ));
-                int hairlineBase = blend(0xFF0F1C22, this.rimAccentRgb, 0.30f);
-                int topRim = withAlpha(hairlineBase, 0x18);
-                int midRim = withAlpha(hairlineBase, 0x22);
-                int botRim = withAlpha(hairlineBase, 0x2E);
+                int hairlineBase = blend(0xFF0F1C22, this.rimAccentRgb, 0.25f);
+                int topRim = withAlpha(hairlineBase, 0x0C);
+                int midRim = withAlpha(hairlineBase, 0x10);
+                int botRim = withAlpha(hairlineBase, 0x15);
                 this.rimPaint.setShader(new LinearGradient(
                         left, top, left, bottom,
                         new int[]{topRim, midRim, botRim},
@@ -3141,9 +3223,7 @@ final class MaterialYou {
                             || (tabsRow != null && BlurBars.isSelfOrAncestor(current, tabsRow))
             )) {
                 Drawable bg = current.getBackground();
-                if (bg != null
-                        && !(bg instanceof FloatingNavPillDrawable)
-                        && !(bg instanceof GestureStripMistDrawable)) {
+                if (bg != null && !(bg instanceof FloatingNavPillDrawable)) {
                     current.getLocationInWindow(this.childLoc);
                     int s = rc.save();
                     rc.translate(this.childLoc[0] - pillWinX, this.childLoc[1] - pillWinY);
