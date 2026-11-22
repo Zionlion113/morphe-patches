@@ -180,13 +180,33 @@ final class MaterialYou {
         int setMarginBottom = Integer.MIN_VALUE;
     }
 
+    private static final class ConstraintSaveState {
+        Field botToTopField;
+        int origBotToTop;
+        Field botToBotField;
+        int origBotToBot;
+        int origHeight;
+        int origBottomMargin;
+        boolean explicitHeightMode;
+    }
+
+    private static final class LinearSaveState {
+        int origHeight;
+        float origWeight;
+        WeakReference<View> trailingBarRef;
+        int origTrailingTopMargin;
+    }
+
     private static final Map<View, int[]> ORIG_NAV_PADDING = new WeakHashMap<>();
     private static final Map<View, Integer> ORIG_NAV_HEIGHT = new WeakHashMap<>();
     private static final Map<View, Integer> ORIG_NAV_LIST_PAD = new WeakHashMap<>();
     private static final Map<View, Integer> ORIG_NAV_FRAG_MARGIN = new WeakHashMap<>();
     private static final Map<View, NavExpandState> NAV_EXPAND_STATES = new WeakHashMap<>();
+    private static final Map<View, ConstraintSaveState> NAV_CONSTRAINT_STATES = new WeakHashMap<>();
+    private static final Map<View, LinearSaveState> NAV_LINEAR_STATES = new WeakHashMap<>();
     private static final Map<View, Integer> ORIG_NAV_CONTAINER_PAD_BOT = new WeakHashMap<>();
     private static final Map<View, Drawable> ORIG_NAV_CLEARED_BG = new WeakHashMap<>();
+    private static final Map<ImageView, Integer> ORIG_NAV_IMAGE_ALPHA = new WeakHashMap<>();
     private static final Map<View, Float> ORIG_NAV_SIBLING_ALPHA = new WeakHashMap<>();
     private static final Map<View, Boolean> CONTENT_BG_APPLIED = new WeakHashMap<>();
     private static final Map<View, WeakReference<View>> NAV_SCROLL_HOST = new WeakHashMap<>();
@@ -972,11 +992,11 @@ final class MaterialYou {
             applyFloatingPillNavBar(
                     decorView, ctx, bnbBg, sysNavBg, tabsParent, pillHost, visibleTabs, palette, styleNavBar
             );
-            extendMainContentBehindPill(decorView, ctx, pillHost, bnbBg, sysNavBg, true);
+            extendMainContentBehindPill(decorView, ctx, pillHost, bnbBg, sysNavBg, visibleTabs, true);
             ensureNavScrollBlurObserver(decorView, pillHost);
         } else {
             restoreNonPillNavBar(decorView, bnbBg, sysNavBg, tabsParent, visibleTabs);
-            extendMainContentBehindPill(decorView, ctx, pillHost, bnbBg, sysNavBg, false);
+            extendMainContentBehindPill(decorView, ctx, pillHost, bnbBg, sysNavBg, visibleTabs, false);
             if (styleNavBar) {
                 Drawable bg = bnbBg.getBackground();
                 if (bg != null && !(bg instanceof ColorDrawable)) {
@@ -1458,6 +1478,15 @@ final class MaterialYou {
         }
         ORIG_NAV_CLEARED_BG.clear();
 
+        for (Map.Entry<ImageView, Integer> entry : ORIG_NAV_IMAGE_ALPHA.entrySet()) {
+            ImageView iv = entry.getKey();
+            Integer imgAlpha = entry.getValue();
+            if (iv != null && imgAlpha != null) {
+                iv.setImageAlpha(imgAlpha);
+            }
+        }
+        ORIG_NAV_IMAGE_ALPHA.clear();
+
         for (Map.Entry<View, Float> entry : ORIG_NAV_SIBLING_ALPHA.entrySet()) {
             View sib = entry.getKey();
             Float alpha = entry.getValue();
@@ -1519,6 +1548,62 @@ final class MaterialYou {
                 || cn.contains("WebView");
     }
 
+    private static boolean hasVisibleTextOrClickable(View v) {
+        if (v == null || v.getVisibility() != View.VISIBLE) {
+            return false;
+        }
+        if (v.isClickable() || v.hasOnClickListeners()) {
+            return true;
+        }
+        if (v instanceof TextView) {
+            CharSequence txt = ((TextView) v).getText();
+            return txt != null && txt.length() > 0;
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup vg = (ViewGroup) v;
+            int n = vg.getChildCount();
+            for (int i = 0; i < n; i++) {
+                if (hasVisibleTextOrClickable(vg.getChildAt(i))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static void hidePassiveScrimTree(View v, View pillHost, List<View> visibleTabs) {
+        if (v == null
+                || v == pillHost
+                || BlurBars.isSelfOrAncestor(v, pillHost)
+                || isAnyTab(v, visibleTabs)) {
+            return;
+        }
+        clearNavWrapperBackground(v);
+        if (v instanceof ImageView) {
+            ImageView iv = (ImageView) v;
+            if (iv.getImageAlpha() != 0) {
+                if (!ORIG_NAV_IMAGE_ALPHA.containsKey(iv)) {
+                    ORIG_NAV_IMAGE_ALPHA.put(iv, iv.getImageAlpha());
+                }
+                iv.setImageAlpha(0);
+            }
+        }
+        if (!hasVisibleTextOrClickable(v)) {
+            if (v.getAlpha() > 0f) {
+                if (!ORIG_NAV_SIBLING_ALPHA.containsKey(v)) {
+                    ORIG_NAV_SIBLING_ALPHA.put(v, v.getAlpha());
+                }
+                v.setAlpha(0f);
+            }
+        } else if (v instanceof ViewGroup) {
+            ViewGroup vg = (ViewGroup) v;
+            int n = vg.getChildCount();
+            for (int i = 0; i < n; i++) {
+                hidePassiveScrimTree(vg.getChildAt(i), pillHost, visibleTabs);
+            }
+        }
+    }
+
     private static void stripContainerBottomInsetPadding(View v, int decorBottom, int minInsetPx) {
         if (!(v instanceof ViewGroup) || isScrollableContainer(v)) {
             return;
@@ -1533,6 +1618,232 @@ final class MaterialYou {
             if (padB != 0) {
                 v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), 0);
             }
+        }
+    }
+
+    private static Field findIntFieldOnLayoutParams(Class<?> cls, String name) {
+        Class<?> cur = cls;
+        while (cur != null
+                && cur != ViewGroup.MarginLayoutParams.class
+                && cur != ViewGroup.LayoutParams.class
+                && cur != Object.class) {
+            try {
+                Field f = cur.getDeclaredField(name);
+                if (f.getType() == int.class) {
+                    f.setAccessible(true);
+                    return f;
+                }
+            } catch (NoSuchFieldException ignored) {
+            }
+            cur = cur.getSuperclass();
+        }
+        return null;
+    }
+
+    private static Field findMatchingIdFieldOnLayoutParams(Object lp, int[] candidateIds, int idCount) {
+        if (lp == null || idCount <= 0) {
+            return null;
+        }
+        Class<?> cur = lp.getClass();
+        while (cur != null
+                && cur != ViewGroup.MarginLayoutParams.class
+                && cur != ViewGroup.LayoutParams.class
+                && cur != Object.class) {
+            for (Field f : cur.getDeclaredFields()) {
+                if (f.getType() != int.class || java.lang.reflect.Modifier.isStatic(f.getModifiers())) {
+                    continue;
+                }
+                try {
+                    f.setAccessible(true);
+                    int val = f.getInt(lp);
+                    for (int i = 0; i < idCount; i++) {
+                        if (val == candidateIds[i]) {
+                            return f;
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+            cur = cur.getSuperclass();
+        }
+        return null;
+    }
+
+    private static void expandConstraintChildToBottom(
+            View target,
+            ViewGroup parent,
+            View bnbBg,
+            View sysNavBg,
+            View pillHost,
+            int decorBottom,
+            int maxBarH
+    ) {
+        ViewGroup.LayoutParams rawLp = target.getLayoutParams();
+        if (!(rawLp instanceof ViewGroup.MarginLayoutParams)) {
+            return;
+        }
+        ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) rawLp;
+        ConstraintSaveState cs = NAV_CONSTRAINT_STATES.get(target);
+        if (cs != null) {
+            try {
+                boolean dirty = false;
+                if (cs.botToTopField != null && cs.botToTopField.getInt(rawLp) != -1) {
+                    cs.botToTopField.setInt(rawLp, -1);
+                    dirty = true;
+                }
+                if (cs.botToBotField != null && cs.botToBotField.getInt(rawLp) != 0) {
+                    cs.botToBotField.setInt(rawLp, 0);
+                    dirty = true;
+                }
+                if (mlp.bottomMargin != 0) {
+                    mlp.bottomMargin = 0;
+                    dirty = true;
+                }
+                if (cs.explicitHeightMode) {
+                    target.getLocationInWindow(NAV_LOC_A);
+                    int desiredH = Math.max(1, decorBottom - NAV_LOC_A[1]);
+                    if (rawLp.height != desiredH) {
+                        rawLp.height = desiredH;
+                        dirty = true;
+                    }
+                } else if (cs.botToBotField != null && rawLp.height > 0) {
+                    rawLp.height = 0;
+                    dirty = true;
+                }
+                if (dirty) {
+                    target.setLayoutParams(rawLp);
+                }
+            } catch (Throwable ignored) {
+            }
+            return;
+        }
+
+        try {
+            Field fBotToTop = findIntFieldOnLayoutParams(rawLp.getClass(), "bottomToTop");
+            Field fBotToBot = findIntFieldOnLayoutParams(rawLp.getClass(), "bottomToBottom");
+            if (fBotToTop != null && fBotToBot != null) {
+                cs = new ConstraintSaveState();
+                cs.botToTopField = fBotToTop;
+                cs.origBotToTop = fBotToTop.getInt(rawLp);
+                cs.botToBotField = fBotToBot;
+                cs.origBotToBot = fBotToBot.getInt(rawLp);
+                cs.origHeight = rawLp.height;
+                cs.origBottomMargin = mlp.bottomMargin;
+                cs.explicitHeightMode = false;
+                NAV_CONSTRAINT_STATES.put(target, cs);
+
+                fBotToTop.setInt(rawLp, -1);
+                fBotToBot.setInt(rawLp, 0);
+                mlp.bottomMargin = 0;
+                if (rawLp.height > 0) {
+                    rawLp.height = 0;
+                }
+                target.setLayoutParams(rawLp);
+                return;
+            }
+
+            // If R8 renamed ConstraintLayout$LayoutParams fields, match the 0x7f resource ID of the bottom bar.
+            int childCount = parent.getChildCount();
+            int[] candidateIds = new int[childCount + 3];
+            int idCount = 0;
+            if (bnbBg != null && (bnbBg.getId() & 0xFF000000) == 0x7F000000) candidateIds[idCount++] = bnbBg.getId();
+            if (sysNavBg != null && (sysNavBg.getId() & 0xFF000000) == 0x7F000000) candidateIds[idCount++] = sysNavBg.getId();
+            if (pillHost != null && (pillHost.getId() & 0xFF000000) == 0x7F000000) candidateIds[idCount++] = pillHost.getId();
+            for (int i = 0; i < childCount; i++) {
+                View s = parent.getChildAt(i);
+                if (s != null && s != target && (s.getId() & 0xFF000000) == 0x7F000000 && s.getHeight() <= maxBarH) {
+                    candidateIds[idCount++] = s.getId();
+                }
+            }
+            Field matchedAnchorField = findMatchingIdFieldOnLayoutParams(rawLp, candidateIds, idCount);
+            if (matchedAnchorField != null) {
+                cs = new ConstraintSaveState();
+                cs.botToTopField = matchedAnchorField;
+                cs.origBotToTop = matchedAnchorField.getInt(rawLp);
+                cs.origHeight = rawLp.height;
+                cs.origBottomMargin = mlp.bottomMargin;
+                cs.explicitHeightMode = true;
+                NAV_CONSTRAINT_STATES.put(target, cs);
+
+                matchedAnchorField.setInt(rawLp, -1);
+                mlp.bottomMargin = 0;
+                target.getLocationInWindow(NAV_LOC_A);
+                rawLp.height = Math.max(1, decorBottom - NAV_LOC_A[1]);
+                target.setLayoutParams(rawLp);
+                return;
+            }
+
+            if (mlp.bottomMargin > 0 || rawLp.height > 0) {
+                cs = new ConstraintSaveState();
+                cs.origHeight = rawLp.height;
+                cs.origBottomMargin = mlp.bottomMargin;
+                cs.explicitHeightMode = rawLp.height > 0;
+                NAV_CONSTRAINT_STATES.put(target, cs);
+                mlp.bottomMargin = 0;
+                if (cs.explicitHeightMode) {
+                    target.getLocationInWindow(NAV_LOC_A);
+                    rawLp.height = Math.max(1, decorBottom - NAV_LOC_A[1]);
+                }
+                target.setLayoutParams(rawLp);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void expandLinearChildToBottom(View target, LinearLayout parent, int decorBottom) {
+        if (parent.getOrientation() != LinearLayout.VERTICAL) {
+            return;
+        }
+        int count = parent.getChildCount();
+        int targetIdx = -1;
+        for (int i = 0; i < count; i++) {
+            if (parent.getChildAt(i) == target) {
+                targetIdx = i;
+                break;
+            }
+        }
+        if (targetIdx < 0 || targetIdx + 1 >= count) {
+            return;
+        }
+        View firstTrailing = null;
+        int trailingH = 0;
+        for (int j = targetIdx + 1; j < count; j++) {
+            View s = parent.getChildAt(j);
+            if (s != null && s.getVisibility() != View.GONE && s.getHeight() > 0) {
+                if (firstTrailing == null) {
+                    firstTrailing = s;
+                }
+                trailingH += s.getHeight();
+            }
+        }
+        if (firstTrailing == null
+                || trailingH <= 0
+                || !(target.getLayoutParams() instanceof LinearLayout.LayoutParams)
+                || !(firstTrailing.getLayoutParams() instanceof LinearLayout.LayoutParams)) {
+            return;
+        }
+        LinearLayout.LayoutParams tLp = (LinearLayout.LayoutParams) target.getLayoutParams();
+        LinearLayout.LayoutParams bLp = (LinearLayout.LayoutParams) firstTrailing.getLayoutParams();
+        LinearSaveState ls = NAV_LINEAR_STATES.get(target);
+        if (ls == null) {
+            ls = new LinearSaveState();
+            ls.origHeight = tLp.height;
+            ls.origWeight = tLp.weight;
+            ls.trailingBarRef = new WeakReference<>(firstTrailing);
+            ls.origTrailingTopMargin = bLp.topMargin;
+            NAV_LINEAR_STATES.put(target, ls);
+        }
+        target.getLocationInWindow(NAV_LOC_A);
+        int desiredH = Math.max(1, decorBottom - NAV_LOC_A[1]);
+        int desiredTopMargin = ls.origTrailingTopMargin - trailingH;
+        if (tLp.height != desiredH || tLp.weight != 0f) {
+            tLp.height = desiredH;
+            tLp.weight = 0f;
+            target.setLayoutParams(tLp);
+        }
+        if (bLp.topMargin != desiredTopMargin) {
+            bLp.topMargin = desiredTopMargin;
+            firstTrailing.setLayoutParams(bLp);
         }
     }
 
@@ -1564,35 +1875,118 @@ final class MaterialYou {
         st.extendedBottom = needed;
     }
 
-    private static View findMainRootAboveBar(View anchor, int minFullScreenH) {
-        View cur = anchor;
-        while (cur != null && cur.getParent() instanceof ViewGroup) {
-            ViewGroup p = (ViewGroup) cur.getParent();
-            if (p.getHeight() >= minFullScreenH) {
-                return p;
-            }
-            cur = p;
+    private static void expandAnyContainerToBottom(
+            View target,
+            ViewGroup parent,
+            View bnbBg,
+            View sysNavBg,
+            View pillHost,
+            int decorBottom,
+            int maxBarH
+    ) {
+        if (target == null || parent == null || target.isLayoutRequested()) {
+            return;
         }
-        return null;
+        String parentClass = parent.getClass().getName();
+        if (parentClass.contains("ConstraintLayout")) {
+            expandConstraintChildToBottom(target, parent, bnbBg, sysNavBg, pillHost, decorBottom, maxBarH);
+        } else if (parent instanceof LinearLayout) {
+            expandLinearChildToBottom(target, (LinearLayout) parent, decorBottom);
+        } else if (!parentClass.contains("ViewPager") && !parentClass.contains("RecyclerView")) {
+            expandViewToDecorBottom(target, decorBottom);
+        }
     }
 
-    private static View findInnerExpandableTarget(View listGroup, View stopAt) {
-        View cur = listGroup;
-        while (cur != null && cur != stopAt && cur.getParent() instanceof ViewGroup) {
-            ViewGroup parent = (ViewGroup) cur.getParent();
-            String parentClass = parent.getClass().getName();
-            boolean unsupportedParent = parent instanceof LinearLayout
-                    || parentClass.contains("ViewPager")
-                    || parentClass.contains("RecyclerView");
-            if (!unsupportedParent && cur.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
-                return cur;
-            }
-            if (parent == stopAt) {
-                break;
-            }
-            cur = parent;
+    private static void walkAndExpandContentTree(
+            ViewGroup vg,
+            View pillHost,
+            View bnbBg,
+            View sysNavBg,
+            List<View> visibleTabs,
+            int decorW,
+            int decorH,
+            int decorBottom,
+            int maxBarH,
+            int minInsetPx,
+            int tolPx,
+            int depth
+    ) {
+        if (vg == null || depth > 5 || isScrollableContainer(vg)) {
+            return;
         }
-        return null;
+        vg.setClipChildren(false);
+        vg.setClipToPadding(false);
+        vg.setClipToOutline(false);
+        stripContainerBottomInsetPadding(vg, decorBottom, minInsetPx);
+
+        int count = vg.getChildCount();
+        View bestContentChild = null;
+        int bestH = Math.round(decorH * 0.35f);
+        for (int i = 0; i < count; i++) {
+            View c = vg.getChildAt(i);
+            if (c == null || c.getVisibility() != View.VISIBLE) {
+                continue;
+            }
+            if (c == pillHost
+                    || BlurBars.isSelfOrAncestor(c, pillHost)
+                    || isAnyTab(c, visibleTabs)) {
+                continue;
+            }
+            int cH = c.getHeight();
+            // Hide any full-width passive bottom-bar scrim sitting at the bottom of vg.
+            if (cH > 0 && cH <= maxBarH && c.getWidth() >= decorW / 2) {
+                c.getLocationInWindow(NAV_LOC_A);
+                int cBot = NAV_LOC_A[1] + cH;
+                if (cBot >= decorBottom - maxBarH) {
+                    hidePassiveScrimTree(c, pillHost, visibleTabs);
+                }
+            }
+            if ((bnbBg != null && BlurBars.isSelfOrAncestor(c, bnbBg))
+                    || (sysNavBg != null && BlurBars.isSelfOrAncestor(c, sysNavBg))) {
+                continue;
+            }
+            if (cH > bestH) {
+                bestH = cH;
+                bestContentChild = c;
+            }
+        }
+
+        if (bestContentChild == null) {
+            return;
+        }
+        bestContentChild.getLocationInWindow(NAV_LOC_A);
+        int childBot = NAV_LOC_A[1] + bestContentChild.getHeight();
+        boolean alreadyTracked = NAV_CONSTRAINT_STATES.containsKey(bestContentChild)
+                || NAV_LINEAR_STATES.containsKey(bestContentChild)
+                || NAV_EXPAND_STATES.containsKey(bestContentChild);
+        if (alreadyTracked || (childBot >= decorBottom - maxBarH && childBot < decorBottom - tolPx)) {
+            expandAnyContainerToBottom(bestContentChild, vg, bnbBg, sysNavBg, pillHost, decorBottom, maxBarH);
+        }
+
+        if (bestContentChild instanceof ViewGroup) {
+            String cn = bestContentChild.getClass().getName();
+            if (cn.contains("ViewPager")) {
+                ViewGroup pager = (ViewGroup) bestContentChild;
+                pager.setClipChildren(false);
+                pager.setClipToPadding(false);
+                pager.setClipToOutline(false);
+                int pCount = pager.getChildCount();
+                for (int i = 0; i < pCount; i++) {
+                    View page = pager.getChildAt(i);
+                    if (page instanceof ViewGroup && page.getVisibility() == View.VISIBLE && page.isShown()) {
+                        walkAndExpandContentTree(
+                                (ViewGroup) page, pillHost, bnbBg, sysNavBg, visibleTabs,
+                                decorW, decorH, decorBottom, maxBarH, minInsetPx, tolPx, depth + 1
+                        );
+                    }
+                }
+            } else {
+                walkAndExpandContentTree(
+                        (ViewGroup) bestContentChild, pillHost, bnbBg, sysNavBg, visibleTabs,
+                        decorW, decorH, decorBottom, maxBarH, minInsetPx, tolPx, depth + 1
+                );
+            }
+        }
     }
 
     private static void extendMainContentBehindPill(
@@ -1601,6 +1995,7 @@ final class MaterialYou {
             View pillHost,
             View bnbBg,
             View sysNavBg,
+            List<View> visibleTabs,
             boolean pillActive
     ) {
         if (!pillActive) {
@@ -1622,6 +2017,41 @@ final class MaterialYou {
             }
             ORIG_NAV_CONTAINER_PAD_BOT.clear();
 
+            for (Map.Entry<View, ConstraintSaveState> e : NAV_CONSTRAINT_STATES.entrySet()) {
+                View v = e.getKey();
+                ConstraintSaveState cs = e.getValue();
+                if (v != null && cs != null && v.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+                    ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) v.getLayoutParams();
+                    try {
+                        if (cs.botToTopField != null) cs.botToTopField.setInt(mlp, cs.origBotToTop);
+                        if (cs.botToBotField != null) cs.botToBotField.setInt(mlp, cs.origBotToBot);
+                    } catch (Throwable ignored) {
+                    }
+                    mlp.height = cs.origHeight;
+                    mlp.bottomMargin = cs.origBottomMargin;
+                    v.setLayoutParams(mlp);
+                }
+            }
+            NAV_CONSTRAINT_STATES.clear();
+
+            for (Map.Entry<View, LinearSaveState> e : NAV_LINEAR_STATES.entrySet()) {
+                View v = e.getKey();
+                LinearSaveState ls = e.getValue();
+                if (v != null && ls != null && v.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+                    LinearLayout.LayoutParams tLp = (LinearLayout.LayoutParams) v.getLayoutParams();
+                    tLp.height = ls.origHeight;
+                    tLp.weight = ls.origWeight;
+                    v.setLayoutParams(tLp);
+                }
+                View trailing = ls != null && ls.trailingBarRef != null ? ls.trailingBarRef.get() : null;
+                if (trailing != null && trailing.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+                    LinearLayout.LayoutParams bLp = (LinearLayout.LayoutParams) trailing.getLayoutParams();
+                    bLp.topMargin = ls.origTrailingTopMargin;
+                    trailing.setLayoutParams(bLp);
+                }
+            }
+            NAV_LINEAR_STATES.clear();
+
             for (Map.Entry<View, NavExpandState> e : NAV_EXPAND_STATES.entrySet()) {
                 View v = e.getKey();
                 NavExpandState st = e.getValue();
@@ -1638,7 +2068,8 @@ final class MaterialYou {
         }
 
         int decorH = decorView.getHeight();
-        if (decorH <= 0 || pillHost.getHeight() <= 0) {
+        int decorW = decorView.getWidth();
+        if (decorH <= 0 || decorW <= 0 || pillHost.getHeight() <= 0) {
             return;
         }
         decorView.getLocationInWindow(NAV_LOC_A);
@@ -1652,44 +2083,19 @@ final class MaterialYou {
             }
         }
 
+        int maxBarH = BlurBars.dp(ctx, 165.0f);
         int minInsetPx = BlurBars.dp(ctx, 32.0f);
-        int minFullH = Math.round(decorH * 0.55f);
-        View mainRootView = findMainRootAboveBar(bnbBg != null ? bnbBg : pillHost, minFullH);
-        View mainContentBranch = null;
-        if (mainRootView instanceof ViewGroup) {
-            ViewGroup mainRoot = (ViewGroup) mainRootView;
-            mainRoot.setClipChildren(false);
-            mainRoot.setClipToPadding(false);
-            stripContainerBottomInsetPadding(mainRoot, decorBottom, minInsetPx);
+        int tolPx = BlurBars.dp(ctx, 4.0f);
 
-            int bestH = Math.round(decorH * 0.40f);
-            int count = mainRoot.getChildCount();
-            for (int i = 0; i < count; i++) {
-                View c = mainRoot.getChildAt(i);
-                if (c == null
-                        || c.getVisibility() != View.VISIBLE
-                        || BlurBars.isSelfOrAncestor(c, pillHost)
-                        || (bnbBg != null && BlurBars.isSelfOrAncestor(c, bnbBg))
-                        || (sysNavBg != null && BlurBars.isSelfOrAncestor(c, sysNavBg))) {
-                    continue;
-                }
-                if (c.getHeight() > bestH) {
-                    bestH = c.getHeight();
-                    mainContentBranch = c;
-                }
-            }
-            if (mainContentBranch != null) {
-                if (mainContentBranch instanceof ViewGroup) {
-                    ViewGroup mcv = (ViewGroup) mainContentBranch;
-                    mcv.setClipChildren(false);
-                    mcv.setClipToPadding(false);
-                    mcv.setClipToOutline(false);
-                }
-                stripContainerBottomInsetPadding(mainContentBranch, decorBottom, minInsetPx);
-                if (!(mainRoot instanceof LinearLayout)) {
-                    expandViewToDecorBottom(mainContentBranch, decorBottom);
-                }
-            }
+        View contentRoot = decorView.findViewById(android.R.id.content);
+        ViewGroup startGroup = contentRoot instanceof ViewGroup
+                ? (ViewGroup) contentRoot
+                : (decorView instanceof ViewGroup ? (ViewGroup) decorView : null);
+        if (startGroup != null) {
+            walkAndExpandContentTree(
+                    startGroup, pillHost, bnbBg, sysNavBg, visibleTabs,
+                    decorW, decorH, decorBottom, maxBarH, minInsetPx, tolPx, 0
+            );
         }
 
         int rvId = BlurBars.id(ctx, "chat_list_recycler_view");
@@ -1709,25 +2115,12 @@ final class MaterialYou {
                 vg.setClipToPadding(false);
                 vg.setClipToOutline(false);
                 stripContainerBottomInsetPadding(vg, decorBottom, minInsetPx);
-                if (vg == mainRootView) {
-                    break;
-                }
                 p = vg.getParent();
             }
             listGroup.setClipToPadding(false);
 
             listGroup.getLocationInWindow(NAV_LOC_A);
             int listBottom = NAV_LOC_A[1] + listGroup.getHeight();
-            View stopAt = mainContentBranch != null ? mainContentBranch : mainRootView;
-            View innerTarget = findInnerExpandableTarget(listGroup, stopAt);
-            if (innerTarget != null
-                    && (mainContentBranch == null || !mainContentBranch.isLayoutRequested())
-                    && (NAV_EXPAND_STATES.containsKey(innerTarget) || listBottom < decorBottom - BlurBars.dp(ctx, 6.0f))) {
-                expandViewToDecorBottom(innerTarget, decorBottom);
-                listGroup.getLocationInWindow(NAV_LOC_A);
-                listBottom = NAV_LOC_A[1] + listGroup.getHeight();
-            }
-
             int actualOverlap = Math.max(0, listBottom - pillTopWinY);
             int extraSafePad = BlurBars.dp(ctx, 12.0f);
             int targetPadBottom = origPadBottom + (actualOverlap > 0 ? actualOverlap + extraSafePad : 0);
