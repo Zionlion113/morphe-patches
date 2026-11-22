@@ -1,3 +1,9 @@
+## [3.13.0-dev.31](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.30...v3.13.0-dev.31) (2026-11-22)
+
+### ✨ New Features
+
+* **LINE:** add custom Material You palette picker and align pill to screen corners ([5f6f30f](https://github.com/Zionlion113/morphe-patches/commit/5f6f30f938e18cc6fa0a8e4a32c7a94038c30716))
+
 ## [3.13.0-dev.30](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.29...v3.13.0-dev.30) (2026-11-22)
 
 ### 🐛 Bug Fixes
