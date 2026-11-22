@@ -60,6 +60,7 @@ public final class LineSettings {
     static final String BLUR_DAY_NIGHT = "blur_day_night";
     static final String CHAT_HEADER_WHITE = "chat_header_white";
     static final String MATERIAL_YOU_THEME = "material_you_theme";
+    static final String MATERIAL_YOU_SEED_COLOR = "material_you_seed_color";
     static final String MATERIAL_YOU_NAV_BAR = "material_you_nav_bar";
     static final String NAV_BAR_PILL = "nav_bar_pill";
     static final String CHAT_BUBBLE_WALLPAPER = "chat_bubble_wallpaper";
@@ -205,6 +206,15 @@ public final class LineSettings {
 
     public static boolean materialYouTheme() {
         return isOn(MATERIAL_YOU_THEME, true);
+    }
+
+    public static int materialYouSeedColor() {
+        if (!rowIncluded()) return 0;
+        return number(MATERIAL_YOU_SEED_COLOR, 0);
+    }
+
+    public static void setMaterialYouSeedColor(int argb) {
+        setNumber(MATERIAL_YOU_SEED_COLOR, argb == 0 ? 0 : (argb | 0xFF000000));
     }
 
     public static boolean materialYouNavBar() {
