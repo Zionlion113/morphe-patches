@@ -1,3 +1,9 @@
+## [3.13.0-dev.29](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.28...v3.13.0-dev.29) (2026-11-22)
+
+### 🐛 Bug Fixes
+
+* **LINE:** refine floating pill navigation glass, proportions, and badge halo ([b201d30](https://github.com/Zionlion113/morphe-patches/commit/b201d307ceedb6e6111e41d306defede01d32ef6))
+
 ## [3.13.0-dev.28](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.27...v3.13.0-dev.28) (2026-11-22)
 
 ### 🐛 Bug Fixes
