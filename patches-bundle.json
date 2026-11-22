@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-21T16:39:09",
-  "description": "## [3.13.0-dev.25](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.24...v3.13.0-dev.25) (2026-11-21)\n\n### 🐛 Bug Fixes\n\n* **LINE:** center floating pill navigation bar vertically over tab icons and labels ([2c89068](https://github.com/Zionlion113/morphe-patches/commit/2c890686c5ba8959140cb661257bf43f2f613b0e))",
-  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.25/patches-3.13.0-dev.25.mpp",
+  "created_at": "2026-11-22T02:23:31",
+  "description": "## [3.13.0-dev.26](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.25...v3.13.0-dev.26) (2026-11-22)\n\n### 🐛 Bug Fixes\n\n* **LINE:** remove opaque bottom bar backdrop behind floating pill navigation bar ([0f4d0d2](https://github.com/Zionlion113/morphe-patches/commit/0f4d0d2c902131fa38c2c642749ab9bd2838ed7b))",
+  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.26/patches-3.13.0-dev.26.mpp",
   "signature_download_url": "",
-  "version": "3.13.0-dev.25"
+  "version": "3.13.0-dev.26"
 }

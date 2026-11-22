@@ -1,3 +1,9 @@
+## [3.13.0-dev.26](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.25...v3.13.0-dev.26) (2026-11-22)
+
+### 🐛 Bug Fixes
+
+* **LINE:** remove opaque bottom bar backdrop behind floating pill navigation bar ([0f4d0d2](https://github.com/Zionlion113/morphe-patches/commit/0f4d0d2c902131fa38c2c642749ab9bd2838ed7b))
+
 ## [3.13.0-dev.25](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.24...v3.13.0-dev.25) (2026-11-21)
 
 ### 🐛 Bug Fixes
