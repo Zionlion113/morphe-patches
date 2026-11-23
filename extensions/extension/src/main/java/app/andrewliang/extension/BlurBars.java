@@ -1070,12 +1070,17 @@ public final class BlurBars {
         }
 
         private View pill;
+        private View pillHost;
         private View pillBg;
+        private int lastPillWinX = Integer.MIN_VALUE;
+        private int lastPillWinY = Integer.MIN_VALUE;
+        private int lastPillW = -1;
+        private int lastPillH = -1;
 
         private void markInputPillDirty() {
-            View p = this.pill;
-            if (p != null && p.getBackground() instanceof GlassPillDrawable) {
-                ((GlassPillDrawable) p.getBackground()).markDirty();
+            View h = this.pillHost;
+            if (h != null && h.getBackground() instanceof GlassPillDrawable) {
+                ((GlassPillDrawable) h.getBackground()).markDirty();
             }
         }
 
@@ -1094,15 +1099,22 @@ public final class BlurBars {
                 if (background2 != progressiveBlurDrawable2) {
                     this.input.setBackground(progressiveBlurDrawable2);
                 }
-                View viewFind = BlurBars.find(this.input, BlurBars.CHAT_INPUT_ROW);
-                if (viewFind != null && viewFind.getBackground() != null) {
-                    viewFind.setBackground(null);
-                }
                 View pillContainer = this.pill;
                 if (pillContainer == null || !pillContainer.isAttachedToWindow()) {
                     pillContainer = BlurBars.find(this.input, BlurBars.CHAT_INPUT_PILL);
                     this.pill = pillContainer;
                 }
+                View hostView = BlurBars.resolvePillHost(this.input, pillContainer);
+                this.pillHost = hostView;
+
+                View inputRow = BlurBars.find(this.input, BlurBars.CHAT_INPUT_ROW);
+                if (inputRow != null && inputRow != hostView && inputRow.getBackground() != null) {
+                    inputRow.setBackground(null);
+                }
+                if (pillContainer != null && pillContainer != hostView && pillContainer.getBackground() != null) {
+                    pillContainer.setBackground(null);
+                }
+
                 View pillBgView = this.pillBg;
                 if (pillBgView == null || !pillBgView.isAttachedToWindow()) {
                     pillBgView = BlurBars.find(this.input, BlurBars.CHAT_INPUT_PILL_BG);
@@ -1110,7 +1122,8 @@ public final class BlurBars {
                 }
                 View msgSource = this.refresh != null ? this.refresh : this.list;
                 boolean needsPill = pillContainer != null
-                    && (!(pillContainer.getBackground() instanceof GlassPillDrawable)
+                    && (hostView == null
+                        || !(hostView.getBackground() instanceof GlassPillDrawable)
                         || (Build.VERSION.SDK_INT >= 23
                             && (!(pillContainer.getForeground() instanceof GlassRimDrawable)
                                 || pillContainer.getForegroundGravity() != Gravity.FILL)));
@@ -1119,8 +1132,10 @@ public final class BlurBars {
                         || (pillBgView instanceof ImageView && ((ImageView) pillBgView).getDrawable() != null));
                 if (needsPill || needsClearBg) {
                     BlurBars.smoothInputPill(this.input, this.style, this.decor, this.content, this.skin, msgSource);
-                } else if (pillContainer != null && pillContainer.getBackground() instanceof GlassPillDrawable) {
-                    ((GlassPillDrawable) pillContainer.getBackground()).bindSources(this.decor, this.content, this.skin, msgSource);
+                } else if (hostView != null && hostView.getBackground() instanceof GlassPillDrawable) {
+                    ((GlassPillDrawable) hostView.getBackground()).bindSources(
+                        pillContainer, this.decor, this.content, this.skin, msgSource
+                    );
                 }
             }
             View view2 = this.spacer;
@@ -1196,8 +1211,22 @@ public final class BlurBars {
             extendList();
             MaterialYou.applyChatRoom(this.decor, this.header, this.list, this.skin);
             PixelNativeEnhancements.applyFoldableChatLayout(this.decor, this.list, this.input);
+            boolean pillMoved = false;
             if (this.pill != null) {
                 BlurBars.centerEmojiButton(this.pill);
+                this.pill.getLocationInWindow(this.tmpLoc);
+                int px = this.tmpLoc[0];
+                int py = this.tmpLoc[1];
+                int pw = this.pill.getWidth();
+                int ph = this.pill.getHeight();
+                if (px != this.lastPillWinX || py != this.lastPillWinY || pw != this.lastPillW || ph != this.lastPillH) {
+                    this.lastPillWinX = px;
+                    this.lastPillWinY = py;
+                    this.lastPillW = pw;
+                    this.lastPillH = ph;
+                    pillMoved = true;
+                    markInputPillDirty();
+                }
             }
             BlurBars.updateSendButtonTint(this.input, this.style);
             if (LineSettings.chatHeaderWhite()) {
@@ -1214,7 +1243,7 @@ public final class BlurBars {
                 if (z || refreshDirty) {
                     this.bottom.invalidate();
                 }
-                if (z || refreshDirty || listDirty || KeyboardMotion.isMoving(this.decor)) {
+                if (!pillMoved && (z || refreshDirty || listDirty || KeyboardMotion.isMoving(this.decor))) {
                     markInputPillDirty();
                 }
             }
@@ -1350,6 +1379,18 @@ public final class BlurBars {
         smoothInputPill(view, chromeStyle, null, null, null, null);
     }
 
+    static View resolvePillHost(View inputRoot, View pill) {
+        if (pill == null) {
+            return null;
+        }
+        View inputRow = inputRoot != null ? find(inputRoot, CHAT_INPUT_ROW) : null;
+        if (inputRow != null && isSelfOrAncestor(inputRow, pill)) {
+            return inputRow;
+        }
+        ViewParent vp = pill.getParent();
+        return vp instanceof View ? (View) vp : pill;
+    }
+
     static void smoothInputPill(View view, ChromeStyle chromeStyle, View decor, View content, View skin, View msgSource) {
         View viewFind = find(view, CHAT_INPUT_PILL);
         View viewFind2 = find(view, CHAT_INPUT_PILL_BG);
@@ -1357,8 +1398,12 @@ public final class BlurBars {
             clearPillBg(viewFind2);
         }
         if (viewFind != null) {
+            View pillHost = resolvePillHost(view, viewFind);
+            if (pillHost != viewFind && viewFind.getBackground() != null) {
+                viewFind.setBackground(null);
+            }
             unclipAncestors(viewFind);
-            stylePillContainer(viewFind, decor, content, skin, msgSource);
+            stylePillContainer(pillHost, viewFind, decor, content, skin, msgSource);
             centerEmojiButton(viewFind);
         }
         View viewFind3 = find(view, INPUT_EDIT);
@@ -1423,7 +1468,13 @@ public final class BlurBars {
         }
     }
 
-    private static void stylePillContainer(View view, View decor, View content, View skin, View msgSource) {
+    private static void stylePillContainer(View pillHost, View view, View decor, View content, View skin, View msgSource) {
+        if (pillHost == null) {
+            pillHost = view;
+        }
+        if (pillHost.willNotDraw()) {
+            pillHost.setWillNotDraw(false);
+        }
         if (view.willNotDraw()) {
             view.setWillNotDraw(false);
         }
@@ -1445,15 +1496,15 @@ public final class BlurBars {
             rimAccentRgb = dark ? 0xFFFFFFFF : 0xFF3E4752;
         }
 
-        Drawable background = view.getBackground();
+        Drawable background = pillHost.getBackground();
         GlassPillDrawable fill;
         if (background instanceof GlassPillDrawable) {
             fill = (GlassPillDrawable) background;
         } else {
-            fill = new GlassPillDrawable(view);
-            view.setBackground(fill);
+            fill = new GlassPillDrawable(pillHost, view);
+            pillHost.setBackground(fill);
         }
-        fill.bindSources(decor, content, skin, msgSource);
+        fill.bindSources(view, decor, content, skin, msgSource);
         fill.updateStyle(dark, surfaceRgb);
 
         if (Build.VERSION.SDK_INT >= 23) {
@@ -1711,8 +1762,10 @@ public final class BlurBars {
         private final RectF shadowRect = new RectF();
         private final Path clipPath = new Path();
         private final int[] hostLoc = new int[2];
+        private final int[] pillLoc = new int[2];
 
         private Object gpu;
+        private WeakReference<View> pillRef;
         private WeakReference<View> decorRef;
         private WeakReference<View> contentRef;
         private WeakReference<View> skinRef;
@@ -1726,14 +1779,19 @@ public final class BlurBars {
         private int cachedHeight = -1;
         private int cachedStyleKey = Integer.MIN_VALUE;
 
-        GlassPillDrawable(View host) {
+        GlassPillDrawable(View host, View pill) {
             this.hostRef = new WeakReference<>(host);
+            this.pillRef = new WeakReference<>(pill);
             this.density = host.getResources().getDisplayMetrics().density;
             this.shadowPaint.setStyle(Paint.Style.FILL);
             this.fillPaint.setStyle(Paint.Style.FILL);
         }
 
-        void bindSources(View decor, View content, View skin, View msgSource) {
+        void bindSources(View pill, View decor, View content, View skin, View msgSource) {
+            if (pill != null && (this.pillRef == null || this.pillRef.get() != pill)) {
+                this.pillRef = new WeakReference<>(pill);
+                this.blurDirty = true;
+            }
             if (decor != null && (this.decorRef == null || this.decorRef.get() != decor)) {
                 this.decorRef = new WeakReference<>(decor);
                 this.blurDirty = true;
@@ -1763,16 +1821,14 @@ public final class BlurBars {
         }
 
         void markDirty() {
-            if (!this.blurDirty) {
-                this.blurDirty = true;
-                View host = this.hostRef.get();
-                if (host != null && host.isAttachedToWindow()) {
-                    host.invalidate();
-                }
+            this.blurDirty = true;
+            View host = this.hostRef.get();
+            if (host != null && host.isAttachedToWindow()) {
+                host.invalidate();
             }
         }
 
-        private int resolveBaseChatBg(View host) {
+        private int resolveBaseChatBg() {
             View content = this.contentRef != null ? this.contentRef.get() : null;
             if (content != null && content.getBackground() instanceof ColorDrawable) {
                 int c = ((ColorDrawable) content.getBackground()).getColor();
@@ -1817,6 +1873,7 @@ public final class BlurBars {
             }
             int topFill = withAlpha(MaterialYou.blend(this.surfaceRgb, 0xFFFFFFFF, this.dark ? 0.05f : 0.35f), alphaTop);
             int botFill = withAlpha(this.surfaceRgb, alphaBottom);
+            this.fillPaint.setColor(0xFFFFFFFF);
             this.fillPaint.setShader(new LinearGradient(
                 0.0f, 0.0f, 0.0f, h,
                 new int[]{topFill, botFill},
@@ -1830,13 +1887,13 @@ public final class BlurBars {
             if (recordingPillBlur || ProgressiveBlurDrawable.recording) {
                 return;
             }
-            Rect bounds = getBounds();
             View host = this.hostRef.get();
-            if (bounds.isEmpty() || host == null) {
+            View pill = this.pillRef != null ? this.pillRef.get() : host;
+            if (host == null || pill == null || pill.getVisibility() != View.VISIBLE) {
                 return;
             }
-            int w = bounds.width();
-            int h = bounds.height();
+            int w = pill.getWidth();
+            int h = pill.getHeight();
             if (w <= 0 || h <= 0) {
                 return;
             }
@@ -1845,66 +1902,73 @@ public final class BlurBars {
             ensureShaders(w, h, radius, canBlur);
 
             host.getLocationInWindow(this.hostLoc);
-            int winX = this.hostLoc[0];
-            int winY = this.hostLoc[1];
+            pill.getLocationInWindow(this.pillLoc);
+            int winX = this.pillLoc[0];
+            int winY = this.pillLoc[1];
             if (winX != this.lastWinX || winY != this.lastWinY) {
                 this.lastWinX = winX;
                 this.lastWinY = winY;
                 this.blurDirty = true;
             }
+            float offsetX = winX - this.hostLoc[0];
+            float offsetY = winY - this.hostLoc[1];
 
-            // Clip out the pill interior and draw the same 6-step exterior shadow as FloatingNavPillDrawable.
-            int shadowSave = canvas.save();
-            if (Build.VERSION.SDK_INT >= 26) {
-                canvas.clipOutPath(this.clipPath);
-            }
-            int stepAlpha = this.dark ? 0x08 : 0x03;
-            for (int step = 6; step >= 1; step--) {
-                float spread = step * this.density * 1.9f;
-                float dy = step * this.density * 0.75f;
-                this.shadowRect.set(
-                    -spread * 0.6f,
-                    dy * 0.25f - spread * 0.2f,
-                    w + spread * 0.6f,
-                    h + dy + spread * 0.65f
-                );
-                this.shadowPaint.setColor(withAlpha(0x000000, stepAlpha));
-                float sr = radius + spread * 0.6f;
-                canvas.drawRoundRect(this.shadowRect, sr, sr, this.shadowPaint);
-            }
-            canvas.restoreToCount(shadowSave);
-
-            int save = canvas.save();
-            canvas.clipPath(this.clipPath);
+            int outerSave = canvas.save();
+            canvas.translate(offsetX, offsetY);
             try {
-                if (canBlur) {
-                    View skin = this.skinRef != null ? this.skinRef.get() : null;
-                    View msgSource = this.msgSourceRef != null ? this.msgSourceRef.get() : null;
-                    if (skin != null || msgSource != null) {
-                        if (this.gpu == null) {
-                            this.gpu = new InputPillBlurGpu();
-                        }
-                        int baseBg = resolveBaseChatBg(host);
-                        ((InputPillBlurGpu) this.gpu).draw(
-                            canvas, host, skin, msgSource, baseBg, winX, winY, w, h, this.density, this.blurDirty
-                        );
-                    }
+                // Clip out the pill interior and draw the same 6-step exterior shadow as FloatingNavPillDrawable.
+                int shadowSave = canvas.save();
+                if (Build.VERSION.SDK_INT >= 26) {
+                    canvas.clipOutPath(this.clipPath);
                 }
-                this.blurDirty = false;
-                canvas.drawRect(this.pillRect, this.fillPaint);
+                int stepAlpha = this.dark ? 0x08 : 0x03;
+                for (int step = 6; step >= 1; step--) {
+                    float spread = step * this.density * 1.9f;
+                    float dy = step * this.density * 0.75f;
+                    this.shadowRect.set(
+                        -spread * 0.6f,
+                        dy * 0.25f - spread * 0.2f,
+                        w + spread * 0.6f,
+                        h + dy + spread * 0.65f
+                    );
+                    this.shadowPaint.setColor(withAlpha(0x000000, stepAlpha));
+                    float sr = radius + spread * 0.6f;
+                    canvas.drawRoundRect(this.shadowRect, sr, sr, this.shadowPaint);
+                }
+                canvas.restoreToCount(shadowSave);
+
+                int save = canvas.save();
+                canvas.clipPath(this.clipPath);
+                try {
+                    if (canBlur) {
+                        View skin = this.skinRef != null ? this.skinRef.get() : null;
+                        View msgSource = this.msgSourceRef != null ? this.msgSourceRef.get() : null;
+                        if (skin != null || msgSource != null) {
+                            if (this.gpu == null) {
+                                this.gpu = new InputPillBlurGpu();
+                            }
+                            int baseBg = resolveBaseChatBg();
+                            ((InputPillBlurGpu) this.gpu).draw(
+                                canvas, host, skin, msgSource, baseBg, winX, winY, w, h, this.density, this.blurDirty
+                            );
+                        }
+                    }
+                    this.blurDirty = false;
+                    canvas.drawRect(this.pillRect, this.fillPaint);
+                } finally {
+                    canvas.restoreToCount(save);
+                }
             } finally {
-                canvas.restoreToCount(save);
+                canvas.restoreToCount(outerSave);
             }
         }
 
         @Override // android.graphics.drawable.Drawable
         public void setAlpha(int alpha) {
-            this.fillPaint.setAlpha(alpha);
         }
 
         @Override // android.graphics.drawable.Drawable
         public void setColorFilter(ColorFilter colorFilter) {
-            this.fillPaint.setColorFilter(colorFilter);
         }
 
         @Override // android.graphics.drawable.Drawable
@@ -1917,6 +1981,7 @@ public final class BlurBars {
         private final RenderNode node = new RenderNode("ChatInputPillGlass");
         private final int[] srcLoc = new int[2];
         private RenderEffect effect;
+        private float lastDensity;
         private int lastW;
         private int lastH;
 
@@ -1949,16 +2014,17 @@ public final class BlurBars {
                     GlassPillDrawable.recordingPillBlur = false;
                     this.node.endRecording();
                 }
+                this.lastW = w;
+                this.lastH = h;
             }
-            if (this.effect == null || sizeChanged) {
+            if (this.effect == null || density != this.lastDensity) {
                 float r = density * 28.0f;
                 RenderEffect blur = RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP);
                 ColorMatrix cm = new ColorMatrix();
                 cm.setSaturation(1.42f);
                 this.effect = RenderEffect.createColorFilterEffect(new ColorMatrixColorFilter(cm), blur);
                 this.node.setRenderEffect(this.effect);
-                this.lastW = w;
-                this.lastH = h;
+                this.lastDensity = density;
             }
             canvas.drawRenderNode(this.node);
         }
@@ -2040,6 +2106,7 @@ public final class BlurBars {
             this.innerRimRect.set(innerInset, innerInset, w - innerInset, h - innerInset);
 
             if (this.dark) {
+                this.innerRimPaint.setColor(0xFFFFFFFF);
                 this.innerRimPaint.setShader(new LinearGradient(
                     0.0f, 0.0f, 0.0f, h,
                     new int[]{0x38FFFFFF, 0x0EFFFFFF, 0x1AFFFFFF},
@@ -2049,6 +2116,7 @@ public final class BlurBars {
                 int topRim = withAlpha(MaterialYou.blend(0xFFFFFFFF, this.rimAccentRgb, 0.20f), 0x26);
                 int midRim = withAlpha(this.rimAccentRgb, 0x14);
                 int botRim = 0x10FFFFFF;
+                this.rimPaint.setColor(0xFFFFFFFF);
                 this.rimPaint.setShader(new LinearGradient(
                     0.0f, 0.0f, 0.0f, h,
                     new int[]{topRim, midRim, botRim},
@@ -2056,6 +2124,7 @@ public final class BlurBars {
                     Shader.TileMode.CLAMP
                 ));
             } else {
+                this.innerRimPaint.setColor(0xFFFFFFFF);
                 this.innerRimPaint.setShader(new LinearGradient(
                     0.0f, 0.0f, 0.0f, h,
                     new int[]{0xD4FFFFFF, 0x50FFFFFF, 0x88FFFFFF},
@@ -2066,6 +2135,7 @@ public final class BlurBars {
                 int topRim = withAlpha(hairlineBase, 0x0C);
                 int midRim = withAlpha(hairlineBase, 0x10);
                 int botRim = withAlpha(hairlineBase, 0x15);
+                this.rimPaint.setColor(0xFFFFFFFF);
                 this.rimPaint.setShader(new LinearGradient(
                     0.0f, 0.0f, 0.0f, h,
                     new int[]{topRim, midRim, botRim},
@@ -2095,14 +2165,10 @@ public final class BlurBars {
 
         @Override // android.graphics.drawable.Drawable
         public void setAlpha(int alpha) {
-            this.innerRimPaint.setAlpha(alpha);
-            this.rimPaint.setAlpha(alpha);
         }
 
         @Override // android.graphics.drawable.Drawable
         public void setColorFilter(ColorFilter colorFilter) {
-            this.innerRimPaint.setColorFilter(colorFilter);
-            this.rimPaint.setColorFilter(colorFilter);
         }
 
         @Override // android.graphics.drawable.Drawable
