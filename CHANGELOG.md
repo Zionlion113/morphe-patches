@@ -1,3 +1,9 @@
+## [3.13.0-dev.35](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.34...v3.13.0-dev.35) (2026-11-23)
+
+### 🐛 Bug Fixes
+
+* **LINE:** remove duplicate start padding on chat input field ([7c1f97c](https://github.com/Zionlion113/morphe-patches/commit/7c1f97c9f752ba1b09d66adf49fd9b4d229f9d81))
+
 ## [3.13.0-dev.34](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.33...v3.13.0-dev.34) (2026-11-23)
 
 ### 🐛 Bug Fixes
