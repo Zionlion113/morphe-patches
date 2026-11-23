@@ -1366,15 +1366,6 @@ public final class BlurBars {
             Context ctx = viewFind3.getContext();
             boolean pillDark = night(viewFind3);
             TextView textView = (TextView) viewFind3;
-            int minStart = dp(ctx, 14.0f);
-            if (textView.getPaddingStart() < minStart) {
-                textView.setPaddingRelative(
-                    minStart,
-                    textView.getPaddingTop(),
-                    textView.getPaddingEnd(),
-                    textView.getPaddingBottom()
-                );
-            }
             int i = pillDark ? INPUT_TEXT_DARK : INPUT_TEXT_DAY;
             int i2 = pillDark ? INPUT_HINT_DARK : INPUT_HINT_DAY;
             if (textView.getCurrentTextColor() != i) {
