@@ -1,3 +1,9 @@
+## [3.13.0-dev.36](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.35...v3.13.0-dev.36) (2026-11-23)
+
+### 🐛 Bug Fixes
+
+* **LINE:** keep frosted glass visible during chat input bar transitions ([99efff3](https://github.com/Zionlion113/morphe-patches/commit/99efff37f4bae7a836be97c5729d440396af9c7f))
+
 ## [3.13.0-dev.35](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.34...v3.13.0-dev.35) (2026-11-23)
 
 ### 🐛 Bug Fixes
