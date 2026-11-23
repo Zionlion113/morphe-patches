@@ -1,3 +1,9 @@
+## [3.13.0-dev.32](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.31...v3.13.0-dev.32) (2026-11-23)
+
+### ✨ New Features
+
+* **LINE:** upgrade chat bottom input capsule to frosted glass ([3252094](https://github.com/Zionlion113/morphe-patches/commit/3252094e6f58d47a553e716542006f932e569ad4))
+
 ## [3.13.0-dev.31](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.30...v3.13.0-dev.31) (2026-11-22)
 
 ### ✨ New Features
