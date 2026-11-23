@@ -1,3 +1,9 @@
+## [3.13.0-dev.33](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.32...v3.13.0-dev.33) (2026-11-23)
+
+### 🐛 Bug Fixes
+
+* **LINE:** match chat input glass parameters to main tab bar and fix multiline shape ([7463c1e](https://github.com/Zionlion113/morphe-patches/commit/7463c1e93cfd06add0078ed32d8dbfc60feac91f))
+
 ## [3.13.0-dev.32](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.31...v3.13.0-dev.32) (2026-11-23)
 
 ### ✨ New Features

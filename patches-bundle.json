@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-23T05:08:22",
-  "description": "## [3.13.0-dev.32](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.31...v3.13.0-dev.32) (2026-11-23)\n\n### ✨ New Features\n\n* **LINE:** upgrade chat bottom input capsule to frosted glass ([3252094](https://github.com/Zionlion113/morphe-patches/commit/3252094e6f58d47a553e716542006f932e569ad4))",
-  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.32/patches-3.13.0-dev.32.mpp",
+  "created_at": "2026-11-23T05:31:48",
+  "description": "## [3.13.0-dev.33](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.32...v3.13.0-dev.33) (2026-11-23)\n\n### 🐛 Bug Fixes\n\n* **LINE:** match chat input glass parameters to main tab bar and fix multiline shape ([7463c1e](https://github.com/Zionlion113/morphe-patches/commit/7463c1e93cfd06add0078ed32d8dbfc60feac91f))",
+  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.33/patches-3.13.0-dev.33.mpp",
   "signature_download_url": "",
-  "version": "3.13.0-dev.32"
+  "version": "3.13.0-dev.33"
 }
