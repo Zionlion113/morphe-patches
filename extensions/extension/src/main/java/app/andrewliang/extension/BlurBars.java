@@ -1196,6 +1196,9 @@ public final class BlurBars {
             extendList();
             MaterialYou.applyChatRoom(this.decor, this.header, this.list, this.skin);
             PixelNativeEnhancements.applyFoldableChatLayout(this.decor, this.list, this.input);
+            if (this.pill != null) {
+                BlurBars.centerEmojiButton(this.pill);
+            }
             BlurBars.updateSendButtonTint(this.input, this.style);
             if (LineSettings.chatHeaderWhite()) {
                 BlurBars.tintHeader(this.header, this.style);
@@ -1355,20 +1358,42 @@ public final class BlurBars {
         }
         if (viewFind != null) {
             unclipAncestors(viewFind);
-            stylePillContainer(viewFind, chromeStyle, decor, content, skin, msgSource);
+            stylePillContainer(viewFind, decor, content, skin, msgSource);
             centerEmojiButton(viewFind);
         }
         View viewFind3 = find(view, INPUT_EDIT);
         if (viewFind3 instanceof TextView) {
-            boolean z = chromeStyle.bottomDarkIcons;
+            Context ctx = viewFind3.getContext();
+            boolean pillDark = night(viewFind3);
             TextView textView = (TextView) viewFind3;
-            int i = z ? -15658735 : -1;
-            int i2 = z ? INPUT_HINT_DAY : INPUT_HINT_DARK;
+            int minStart = dp(ctx, 14.0f);
+            if (textView.getPaddingStart() < minStart) {
+                textView.setPaddingRelative(
+                    minStart,
+                    textView.getPaddingTop(),
+                    textView.getPaddingEnd(),
+                    textView.getPaddingBottom()
+                );
+            }
+            int i = pillDark ? INPUT_TEXT_DARK : INPUT_TEXT_DAY;
+            int i2 = pillDark ? INPUT_HINT_DARK : INPUT_HINT_DAY;
             if (textView.getCurrentTextColor() != i) {
                 textView.setTextColor(i);
             }
             if (textView.getCurrentHintTextColor() != i2) {
                 textView.setHintTextColor(i2);
+            }
+            if (Build.VERSION.SDK_INT >= 29) {
+                try {
+                    Drawable cursor = textView.getTextCursorDrawable();
+                    if (cursor != null) {
+                        int cursorColor = LineSettings.materialYouTheme()
+                            ? MaterialYou.Palette.of(ctx).accent
+                            : i;
+                        cursor.mutate().setTint(cursorColor);
+                    }
+                } catch (Throwable ignored) {
+                }
             }
         }
     }
@@ -1407,29 +1432,26 @@ public final class BlurBars {
         }
     }
 
-    private static void stylePillContainer(View view, ChromeStyle chromeStyle, View decor, View content, View skin, View msgSource) {
+    private static void stylePillContainer(View view, View decor, View content, View skin, View msgSource) {
         if (view.willNotDraw()) {
             view.setWillNotDraw(false);
         }
         Context ctx = view.getContext();
         float density = view.getResources().getDisplayMetrics().density;
-        boolean systemDark = night(view);
-        boolean darkIcons = chromeStyle != null ? chromeStyle.bottomDarkIcons : !systemDark;
-        int glassMode = darkIcons ? 0 : (systemDark ? 1 : 2);
-
+        boolean dark = night(view);
         boolean myOn = LineSettings.materialYouTheme();
         MaterialYou.Palette pal = myOn ? MaterialYou.Palette.of(ctx) : null;
+
         int surfaceRgb;
         int rimAccentRgb;
-        if (glassMode == 0) {
-            surfaceRgb = myOn ? MaterialYou.blend(0xFFFFFFFF, pal.navBarBg, 0.22f) : 0xFFFAFBFD;
-            rimAccentRgb = myOn ? pal.accent : 0xFF3E4752;
-        } else if (glassMode == 1) {
-            surfaceRgb = myOn ? MaterialYou.blend(0xFF161920, pal.navBarBg, 0.45f) : 0xFF181B22;
-            rimAccentRgb = myOn ? pal.accent : 0xFFFFFFFF;
+        if (myOn) {
+            surfaceRgb = dark
+                ? MaterialYou.blend(0xFF161920, pal.navBarBg, 0.45f)
+                : MaterialYou.blend(0xFFFFFFFF, pal.navBarBg, 0.22f);
+            rimAccentRgb = pal.accent;
         } else {
-            surfaceRgb = myOn ? MaterialYou.blend(0xFFFFFFFF, pal.navBarBg, 0.28f) : 0xFFFFFFFF;
-            rimAccentRgb = myOn ? pal.accent : 0xFFFFFFFF;
+            surfaceRgb = dark ? 0xFF181B22 : 0xFFFAFBFD;
+            rimAccentRgb = dark ? 0xFFFFFFFF : 0xFF3E4752;
         }
 
         Drawable background = view.getBackground();
@@ -1441,7 +1463,7 @@ public final class BlurBars {
             view.setBackground(fill);
         }
         fill.bindSources(decor, content, skin, msgSource);
-        fill.updateStyle(glassMode, surfaceRgb);
+        fill.updateStyle(dark, surfaceRgb);
 
         if (Build.VERSION.SDK_INT >= 23) {
             if (view.getForegroundGravity() != Gravity.FILL) {
@@ -1455,14 +1477,17 @@ public final class BlurBars {
                 rim = new GlassRimDrawable(view, density);
                 view.setForeground(rim);
             }
-            rim.updateStyle(glassMode, rimAccentRgb);
+            rim.updateStyle(dark, rimAccentRgb);
         }
     }
 
     public static void tintInputIcons(View view, ChromeStyle chromeStyle) {
         boolean z = chromeStyle.bottomDarkIcons;
         int i = z ? -15658735 : -1;
-        int i2 = z ? ICON_EMOJI_DAY : -1;
+        boolean pillDark = night(view);
+        int i2 = pillDark
+            ? -1
+            : (LineSettings.materialYouTheme() ? MaterialYou.Palette.of(view.getContext()).navUnselected : ICON_EMOJI_DAY);
         for (String str : INPUT_DARK_ICONS) {
             tintImage(find(view, str), i);
         }
@@ -1620,8 +1645,13 @@ public final class BlurBars {
         }
     }
 
-    private static void centerEmojiButton(View view) {
+    private static final float INPUT_PILL_MAX_RADIUS_DP = 19.5f;
+
+    static void centerEmojiButton(View view) {
         View view2;
+        if (view == null) {
+            return;
+        }
         String[] strArr = INPUT_EMOJI_ICONS;
         View viewFind = find(view, strArr[0]);
         if (viewFind == null) {
@@ -1635,8 +1665,9 @@ public final class BlurBars {
         if (width <= 0 || height <= 0 || view2.getWidth() <= 0 || view2.getHeight() <= 0) {
             return;
         }
-        float fRound = Math.round((width - (Math.min(height, dp(view.getContext(), 38.0f)) / 2.0f)) - (view2.getLeft() + (view2.getWidth() / 2.0f)));
-        float fRound2 = Math.round((height / 2.0f) - (view2.getTop() + (view2.getHeight() / 2.0f)));
+        float slot = Math.min(height, dp(view.getContext(), 38.0f));
+        float fRound = Math.round((width - (slot / 2.0f)) - (view2.getLeft() + (view2.getWidth() / 2.0f)));
+        float fRound2 = Math.round((height - (slot / 2.0f)) - (view2.getTop() + (view2.getHeight() / 2.0f)));
         if (view2.getTranslationX() != fRound) {
             view2.setTranslationX(fRound);
         }
@@ -1655,7 +1686,6 @@ public final class BlurBars {
         private final WeakReference<View> hostRef;
         private final float density;
         private final Paint shadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint veilPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF pillRect = new RectF();
         private final RectF shadowRect = new RectF();
@@ -1667,7 +1697,7 @@ public final class BlurBars {
         private WeakReference<View> contentRef;
         private WeakReference<View> skinRef;
         private WeakReference<View> msgSourceRef;
-        private int glassMode;
+        private boolean dark;
         private int surfaceRgb;
         private boolean blurDirty = true;
         private int lastWinX = Integer.MIN_VALUE;
@@ -1680,7 +1710,6 @@ public final class BlurBars {
             this.hostRef = new WeakReference<>(host);
             this.density = host.getResources().getDisplayMetrics().density;
             this.shadowPaint.setStyle(Paint.Style.FILL);
-            this.veilPaint.setStyle(Paint.Style.FILL);
             this.fillPaint.setStyle(Paint.Style.FILL);
         }
 
@@ -1703,9 +1732,9 @@ public final class BlurBars {
             }
         }
 
-        void updateStyle(int glassMode, int surfaceRgb) {
-            if (this.glassMode != glassMode || this.surfaceRgb != surfaceRgb) {
-                this.glassMode = glassMode;
+        void updateStyle(boolean dark, int surfaceRgb) {
+            if (this.dark != dark || this.surfaceRgb != surfaceRgb) {
+                this.dark = dark;
                 this.surfaceRgb = surfaceRgb;
                 this.cachedWidth = -1;
                 this.blurDirty = true;
@@ -1738,11 +1767,12 @@ public final class BlurBars {
                     return c | 0xFF000000;
                 }
             }
-            return night(host) ? 0xFF14171D : 0xFF8CA4C4;
+            return this.dark ? 0xFF14171D : 0xFFEFF3F8;
         }
 
         private void ensureShaders(int w, int h, float radius, boolean canBlur) {
-            int styleKey = ((this.surfaceRgb & 0x00FFFFFF) ^ (this.glassMode * 97))
+            int styleKey = (this.surfaceRgb & 0x00FFFFFF)
+                ^ (this.dark ? 0x40000000 : 0)
                 ^ (canBlur ? 0x20000000 : 0);
             if (w == this.cachedWidth && h == this.cachedHeight && styleKey == this.cachedStyleKey) {
                 return;
@@ -1756,55 +1786,23 @@ public final class BlurBars {
             this.clipPath.reset();
             this.clipPath.addRoundRect(this.pillRect, radius, radius, Path.Direction.CW);
 
-            if (this.glassMode == 0) {
-                // Light frosted glass: exact optical match with FloatingNavPillDrawable in light mode
-                int alphaTop = canBlur ? 0xA6 : 0xF0;
-                int alphaBottom = canBlur ? 0xBA : 0xF7;
-                int topFill = withAlpha(MaterialYou.blend(this.surfaceRgb, 0xFFFFFFFF, 0.35f), alphaTop);
-                int botFill = withAlpha(this.surfaceRgb, alphaBottom);
-                this.veilPaint.setColor(0);
-                this.fillPaint.setShader(new LinearGradient(
-                    0.0f, 0.0f, 0.0f, h,
-                    new int[]{topFill, botFill},
-                    null,
-                    Shader.TileMode.CLAMP
-                ));
-            } else if (this.glassMode == 1) {
-                // System dark frosted glass: exact optical match with FloatingNavPillDrawable in dark mode
-                int alphaTop = canBlur ? 0xAA : 0xEE;
-                int alphaBottom = canBlur ? 0xBE : 0xF5;
-                int topFill = withAlpha(MaterialYou.blend(this.surfaceRgb, 0xFFFFFFFF, 0.06f), alphaTop);
-                int botFill = withAlpha(this.surfaceRgb, alphaBottom);
-                this.veilPaint.setColor(0);
-                this.fillPaint.setShader(new LinearGradient(
-                    0.0f, 0.0f, 0.0f, h,
-                    new int[]{topFill, botFill},
-                    null,
-                    Shader.TileMode.CLAMP
-                ));
+            int alphaTop;
+            int alphaBottom;
+            if (canBlur) {
+                alphaTop = this.dark ? 0xAA : 0xA6;
+                alphaBottom = this.dark ? 0xBE : 0xBA;
             } else {
-                // Luminous Compose 1.13 liquid frosted glass over photo chat backgrounds
-                if (canBlur) {
-                    this.veilPaint.setColor(0x22000000);
-                    int topFrost = withAlpha(0xFFFFFFFF, 0x4A);
-                    int midFrost = withAlpha(this.surfaceRgb, 0x2E);
-                    int botFrost = withAlpha(this.surfaceRgb, 0x3E);
-                    this.fillPaint.setShader(new LinearGradient(
-                        0.0f, 0.0f, 0.0f, h,
-                        new int[]{topFrost, midFrost, botFrost},
-                        new float[]{0.0f, 0.48f, 1.0f},
-                        Shader.TileMode.CLAMP
-                    ));
-                } else {
-                    this.veilPaint.setColor(0);
-                    this.fillPaint.setShader(new LinearGradient(
-                        0.0f, 0.0f, 0.0f, h,
-                        new int[]{0xCC22262E, 0xD81B1F26},
-                        null,
-                        Shader.TileMode.CLAMP
-                    ));
-                }
+                alphaTop = this.dark ? 0xEE : 0xF0;
+                alphaBottom = this.dark ? 0xF5 : 0xF7;
             }
+            int topFill = withAlpha(MaterialYou.blend(this.surfaceRgb, 0xFFFFFFFF, this.dark ? 0.05f : 0.35f), alphaTop);
+            int botFill = withAlpha(this.surfaceRgb, alphaBottom);
+            this.fillPaint.setShader(new LinearGradient(
+                0.0f, 0.0f, 0.0f, h,
+                new int[]{topFill, botFill},
+                null,
+                Shader.TileMode.CLAMP
+            ));
         }
 
         @Override // android.graphics.drawable.Drawable
@@ -1822,7 +1820,7 @@ public final class BlurBars {
             if (w <= 0 || h <= 0) {
                 return;
             }
-            float radius = Math.min(w, h) * 0.5f;
+            float radius = Math.min(Math.min(w, h) * 0.5f, this.density * INPUT_PILL_MAX_RADIUS_DP);
             boolean canBlur = !powerSave() && Build.VERSION.SDK_INT >= 31 && canvas.isHardwareAccelerated();
             ensureShaders(w, h, radius, canBlur);
 
@@ -1835,23 +1833,23 @@ public final class BlurBars {
                 this.blurDirty = true;
             }
 
-            // Soft exterior ambient drop shadow clipped out of the glass interior.
+            // Clip out the pill interior and draw the same 6-step exterior shadow as FloatingNavPillDrawable.
             int shadowSave = canvas.save();
             if (Build.VERSION.SDK_INT >= 26) {
                 canvas.clipOutPath(this.clipPath);
             }
-            int stepAlpha = this.glassMode == 0 ? 0x03 : 0x06;
-            for (int step = 5; step >= 1; step--) {
-                float spread = step * this.density * 1.3f;
-                float dy = step * this.density * 0.5f;
+            int stepAlpha = this.dark ? 0x08 : 0x03;
+            for (int step = 6; step >= 1; step--) {
+                float spread = step * this.density * 1.9f;
+                float dy = step * this.density * 0.75f;
                 this.shadowRect.set(
-                    -spread * 0.55f,
-                    dy * 0.2f - spread * 0.2f,
-                    w + spread * 0.55f,
-                    h + dy + spread * 0.55f
+                    -spread * 0.6f,
+                    dy * 0.25f - spread * 0.2f,
+                    w + spread * 0.6f,
+                    h + dy + spread * 0.65f
                 );
                 this.shadowPaint.setColor(withAlpha(0x000000, stepAlpha));
-                float sr = radius + spread * 0.55f;
+                float sr = radius + spread * 0.6f;
                 canvas.drawRoundRect(this.shadowRect, sr, sr, this.shadowPaint);
             }
             canvas.restoreToCount(shadowSave);
@@ -1873,9 +1871,6 @@ public final class BlurBars {
                     }
                 }
                 this.blurDirty = false;
-                if (this.veilPaint.getColor() != 0) {
-                    canvas.drawRect(this.pillRect, this.veilPaint);
-                }
                 canvas.drawRect(this.pillRect, this.fillPaint);
             } finally {
                 canvas.restoreToCount(save);
@@ -1969,7 +1964,8 @@ public final class BlurBars {
 
     private static final class GlassRimDrawable extends Drawable {
         final View host;
-        private int glassMode;
+        private final float density;
+        private boolean dark;
         private int rimAccentRgb;
         private final Paint innerRimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint rimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -1981,15 +1977,16 @@ public final class BlurBars {
 
         GlassRimDrawable(View host, float density) {
             this.host = host;
+            this.density = density;
             this.innerRimPaint.setStyle(Paint.Style.STROKE);
             this.innerRimPaint.setStrokeWidth(Math.max(1.0f, density * 1.0f));
             this.rimPaint.setStyle(Paint.Style.STROKE);
             this.rimPaint.setStrokeWidth(Math.max(1.0f, density * 0.75f));
         }
 
-        void updateStyle(int glassMode, int rimAccentRgb) {
-            if (this.glassMode != glassMode || this.rimAccentRgb != rimAccentRgb) {
-                this.glassMode = glassMode;
+        void updateStyle(boolean dark, int rimAccentRgb) {
+            if (this.dark != dark || this.rimAccentRgb != rimAccentRgb) {
+                this.dark = dark;
                 this.rimAccentRgb = rimAccentRgb;
                 this.shaderWidth = -1;
                 invalidateSelf();
@@ -2007,7 +2004,7 @@ public final class BlurBars {
         }
 
         private void ensureShader(int w, int h) {
-            int styleKey = ((this.rimAccentRgb & 0x00FFFFFF) * 31) ^ this.glassMode;
+            int styleKey = ((this.rimAccentRgb & 0x00FFFFFF) * 31) ^ (this.dark ? 0x40000000 : 0);
             if (w == this.shaderWidth && h == this.shaderHeight && styleKey == this.shaderStyleKey) {
                 return;
             }
@@ -2022,8 +2019,23 @@ public final class BlurBars {
             float innerInset = outerStroke + this.innerRimPaint.getStrokeWidth() * 0.5f;
             this.innerRimRect.set(innerInset, innerInset, w - innerInset, h - innerInset);
 
-            if (this.glassMode == 0) {
-                // Light frosted glass concentric specular rim (matches FloatingNavPillDrawable)
+            if (this.dark) {
+                this.innerRimPaint.setShader(new LinearGradient(
+                    0.0f, 0.0f, 0.0f, h,
+                    new int[]{0x38FFFFFF, 0x0EFFFFFF, 0x1AFFFFFF},
+                    new float[]{0.0f, 0.48f, 1.0f},
+                    Shader.TileMode.CLAMP
+                ));
+                int topRim = withAlpha(MaterialYou.blend(0xFFFFFFFF, this.rimAccentRgb, 0.20f), 0x26);
+                int midRim = withAlpha(this.rimAccentRgb, 0x14);
+                int botRim = 0x10FFFFFF;
+                this.rimPaint.setShader(new LinearGradient(
+                    0.0f, 0.0f, 0.0f, h,
+                    new int[]{topRim, midRim, botRim},
+                    new float[]{0.0f, 0.5f, 1.0f},
+                    Shader.TileMode.CLAMP
+                ));
+            } else {
                 this.innerRimPaint.setShader(new LinearGradient(
                     0.0f, 0.0f, 0.0f, h,
                     new int[]{0xD4FFFFFF, 0x50FFFFFF, 0x88FFFFFF},
@@ -2031,45 +2043,12 @@ public final class BlurBars {
                     Shader.TileMode.CLAMP
                 ));
                 int hairlineBase = MaterialYou.blend(0xFF0F1C22, this.rimAccentRgb, 0.25f);
+                int topRim = withAlpha(hairlineBase, 0x0C);
+                int midRim = withAlpha(hairlineBase, 0x10);
+                int botRim = withAlpha(hairlineBase, 0x15);
                 this.rimPaint.setShader(new LinearGradient(
                     0.0f, 0.0f, 0.0f, h,
-                    new int[]{
-                        withAlpha(hairlineBase, 0x0C),
-                        withAlpha(hairlineBase, 0x10),
-                        withAlpha(hairlineBase, 0x16)
-                    },
-                    new float[]{0.0f, 0.5f, 1.0f},
-                    Shader.TileMode.CLAMP
-                ));
-            } else if (this.glassMode == 1) {
-                // Dark frosted glass concentric specular rim (matches FloatingNavPillDrawable)
-                this.innerRimPaint.setShader(new LinearGradient(
-                    0.0f, 0.0f, 0.0f, h,
-                    new int[]{0x42FFFFFF, 0x12FFFFFF, 0x22FFFFFF},
-                    new float[]{0.0f, 0.48f, 1.0f},
-                    Shader.TileMode.CLAMP
-                ));
-                int topRim = withAlpha(MaterialYou.blend(0xFFFFFFFF, this.rimAccentRgb, 0.20f), 0x28);
-                int midRim = withAlpha(this.rimAccentRgb, 0x16);
-                this.rimPaint.setShader(new LinearGradient(
-                    0.0f, 0.0f, 0.0f, h,
-                    new int[]{topRim, midRim, 0x14FFFFFF},
-                    new float[]{0.0f, 0.5f, 1.0f},
-                    Shader.TileMode.CLAMP
-                ));
-            } else {
-                // Luminous Compose 1.13 photo-backdrop concentric specular rim
-                this.innerRimPaint.setShader(new LinearGradient(
-                    0.0f, 0.0f, 0.0f, h,
-                    new int[]{0xACFFFFFF, 0x36FFFFFF, 0x62FFFFFF},
-                    new float[]{0.0f, 0.48f, 1.0f},
-                    Shader.TileMode.CLAMP
-                ));
-                int topRim = withAlpha(MaterialYou.blend(0xFFFFFFFF, this.rimAccentRgb, 0.18f), 0x36);
-                int midRim = withAlpha(this.rimAccentRgb, 0x1C);
-                this.rimPaint.setShader(new LinearGradient(
-                    0.0f, 0.0f, 0.0f, h,
-                    new int[]{topRim, midRim, 0x1E000000},
+                    new int[]{topRim, midRim, botRim},
                     new float[]{0.0f, 0.5f, 1.0f},
                     Shader.TileMode.CLAMP
                 ));
@@ -2084,9 +2063,13 @@ public final class BlurBars {
                 return;
             }
             ensureShader(w, h);
-            float innerRadius = Math.max(0.0f, Math.min(this.innerRimRect.width(), this.innerRimRect.height()) * 0.5f);
+            float baseRadius = Math.min(Math.min(w, h) * 0.5f, this.density * INPUT_PILL_MAX_RADIUS_DP);
+            float outerStroke = this.rimPaint.getStrokeWidth();
+            float outerInset = outerStroke * 0.5f;
+            float innerInset = outerStroke + this.innerRimPaint.getStrokeWidth() * 0.5f;
+            float innerRadius = Math.max(0.0f, baseRadius - innerInset);
             canvas.drawRoundRect(this.innerRimRect, innerRadius, innerRadius, this.innerRimPaint);
-            float rimRadius = Math.max(0.0f, Math.min(this.rimRect.width(), this.rimRect.height()) * 0.5f);
+            float rimRadius = Math.max(0.0f, baseRadius - outerInset);
             canvas.drawRoundRect(this.rimRect, rimRadius, rimRadius, this.rimPaint);
         }
 
