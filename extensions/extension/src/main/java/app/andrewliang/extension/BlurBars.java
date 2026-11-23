@@ -1645,34 +1645,63 @@ public final class BlurBars {
         }
     }
 
-    private static final float INPUT_PILL_MAX_RADIUS_DP = 19.5f;
+    private static final float INPUT_PILL_MAX_RADIUS_DP = 22.0f;
 
     static void centerEmojiButton(View view) {
-        View view2;
         if (view == null) {
-            return;
-        }
-        String[] strArr = INPUT_EMOJI_ICONS;
-        View viewFind = find(view, strArr[0]);
-        if (viewFind == null) {
-            viewFind = find(view, strArr[1]);
-        }
-        if (viewFind == null || !(viewFind.getParent() instanceof View) || (view2 = (View) viewFind.getParent()) == view || view2.getParent() != view) {
             return;
         }
         int width = view.getWidth();
         int height = view.getHeight();
-        if (width <= 0 || height <= 0 || view2.getWidth() <= 0 || view2.getHeight() <= 0) {
+        if (width <= 0 || height <= 0) {
             return;
         }
-        float slot = Math.min(height, dp(view.getContext(), 38.0f));
-        float fRound = Math.round((width - (slot / 2.0f)) - (view2.getLeft() + (view2.getWidth() / 2.0f)));
-        float fRound2 = Math.round((height - (slot / 2.0f)) - (view2.getTop() + (view2.getHeight() / 2.0f)));
-        if (view2.getTranslationX() != fRound) {
-            view2.setTranslationX(fRound);
-        }
-        if (view2.getTranslationY() != fRound2) {
-            view2.setTranslationY(fRound2);
+        float maxCapDiameter = view.getResources().getDisplayMetrics().density * (INPUT_PILL_MAX_RADIUS_DP * 2.0f);
+        float endCapRadius = Math.min((float) height, maxCapDiameter) * 0.5f;
+        float targetCenterX = width - endCapRadius;
+        float targetCenterY = height - endCapRadius;
+
+        for (String idName : INPUT_EMOJI_ICONS) {
+            View icon = find(view, idName);
+            if (icon == null || icon.getVisibility() != View.VISIBLE || icon.getWidth() <= 0 || icon.getHeight() <= 0) {
+                continue;
+            }
+            View target = icon;
+            float relLeft = 0.0f;
+            float relTop = 0.0f;
+            View cur = icon;
+            boolean insidePill = false;
+            while (cur != null && cur != view) {
+                relLeft += cur.getLeft();
+                relTop += cur.getTop();
+                ViewParent vp = cur.getParent();
+                if (!(vp instanceof View)) {
+                    break;
+                }
+                View parentView = (View) vp;
+                if (parentView == view) {
+                    target = cur;
+                    insidePill = true;
+                    break;
+                }
+                relLeft += cur.getTranslationX();
+                relTop += cur.getTranslationY();
+                cur = parentView;
+            }
+            if (!insidePill) {
+                continue;
+            }
+            float naturalCenterX = relLeft + (icon.getPaddingLeft() + (icon.getWidth() - icon.getPaddingRight())) * 0.5f;
+            float naturalCenterY = relTop + (icon.getPaddingTop() + (icon.getHeight() - icon.getPaddingBottom())) * 0.5f;
+            float desiredTx = targetCenterX - naturalCenterX;
+            float desiredTy = targetCenterY - naturalCenterY;
+            if (Math.abs(target.getTranslationX() - desiredTx) > 0.2f) {
+                target.setTranslationX(desiredTx);
+            }
+            if (Math.abs(target.getTranslationY() - desiredTy) > 0.2f) {
+                target.setTranslationY(desiredTy);
+            }
+            break;
         }
     }
 
