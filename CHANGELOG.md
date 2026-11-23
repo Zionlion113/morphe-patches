@@ -1,3 +1,9 @@
+## [3.13.0-dev.34](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.33...v3.13.0-dev.34) (2026-11-23)
+
+### 🐛 Bug Fixes
+
+* **LINE:** center emoji icon concentrically inside chat input capsule ([cdf0aef](https://github.com/Zionlion113/morphe-patches/commit/cdf0aef5ed0031c2086a5010635e468207245708))
+
 ## [3.13.0-dev.33](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.32...v3.13.0-dev.33) (2026-11-23)
 
 ### 🐛 Bug Fixes

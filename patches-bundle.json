@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-23T05:31:48",
-  "description": "## [3.13.0-dev.33](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.32...v3.13.0-dev.33) (2026-11-23)\n\n### 🐛 Bug Fixes\n\n* **LINE:** match chat input glass parameters to main tab bar and fix multiline shape ([7463c1e](https://github.com/Zionlion113/morphe-patches/commit/7463c1e93cfd06add0078ed32d8dbfc60feac91f))",
-  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.33/patches-3.13.0-dev.33.mpp",
+  "created_at": "2026-11-23T06:22:24",
+  "description": "## [3.13.0-dev.34](https://github.com/Zionlion113/morphe-patches/compare/v3.13.0-dev.33...v3.13.0-dev.34) (2026-11-23)\n\n### 🐛 Bug Fixes\n\n* **LINE:** center emoji icon concentrically inside chat input capsule ([cdf0aef](https://github.com/Zionlion113/morphe-patches/commit/cdf0aef5ed0031c2086a5010635e468207245708))",
+  "download_url": "https://github.com/Zionlion113/morphe-patches/releases/download/v3.13.0-dev.34/patches-3.13.0-dev.34.mpp",
   "signature_download_url": "",
-  "version": "3.13.0-dev.33"
+  "version": "3.13.0-dev.34"
 }
