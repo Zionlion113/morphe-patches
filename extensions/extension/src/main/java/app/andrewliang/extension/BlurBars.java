@@ -572,6 +572,15 @@ public final class BlurBars {
         }
     }
 
+    static void refreshAllChats() {
+        for (ChatScreen chatScreen : new ArrayList<>(CHATS.values())) {
+            if (chatScreen != null && chatScreen.decor.isAttachedToWindow()) {
+                MaterialYou.applyChatRoom(chatScreen.decor, chatScreen.header, chatScreen.list, chatScreen.skin);
+                chatScreen.decor.postInvalidate();
+            }
+        }
+    }
+
     static void unwatch(Activity activity) {
         if (activity == null) {
             return;
@@ -601,6 +610,10 @@ public final class BlurBars {
 
     public static void watch(Activity activity) {
         try {
+            if (activity != null && activity.getWindow() != null) {
+                View peek = activity.getWindow().peekDecorView();
+                MaterialYou.registerActivity(peek != null ? peek : activity.getWindow().getDecorView(), activity);
+            }
             PixelNativeEnhancements.applyActivity(activity);
             MaterialYou.attachChatSettingsRow(activity);
             Window window;
@@ -610,6 +623,7 @@ public final class BlurBars {
                     window.setNavigationBarContrastEnforced(false);
                 }
                 final View decorView = window.getDecorView();
+                MaterialYou.registerActivity(decorView, activity);
                 Map<View, Boolean> map = WATCHED;
                 if (map.containsKey(decorView)) {
                     MaterialYou.onActivityResumed(decorView);
