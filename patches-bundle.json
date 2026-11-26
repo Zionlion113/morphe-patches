@@ -1,0 +1,7 @@
+{
+  "created_at": "2026-11-26T15:52:00",
+  "description": "## 3.13.0-dev.38 (2026-11-26)\n\n### 🐛 Bug Fixes\n\n* **LINE:** fix per-chat bubble color override when chat has wallpaper\n\n### ✨ New Features\n\n* **LINE:** separate default chat bubble color from Material You and add global picker",
+  "download_url": "https://github.com/Zionlion113/morphe-patches/raw/refs/heads/builds/patches-3.13.0-dev.38.mpp",
+  "signature_download_url": "",
+  "version": "3.13.0-dev.38"
+}
