@@ -37,7 +37,9 @@ import android.graphics.drawable.NinePatchDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.RoundedCorner;
@@ -64,7 +66,9 @@ import android.widget.Toast;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -249,6 +253,8 @@ final class MaterialYou {
     private static final Map<View, ViewTreeObserver.OnPreDrawListener> NAV_PREDRAW_LISTENERS = new WeakHashMap<>();
     private static final Map<View, Integer> BADGE_APPLIED = new WeakHashMap<>();
     private static final Map<View, String> CHAT_IDS = new WeakHashMap<>();
+    private static final Map<View, WeakReference<Activity>> DECOR_ACTIVITIES = new WeakHashMap<>();
+    private static final Map<String, String> TITLE_TO_CHAT_ID = new ConcurrentHashMap<>();
     private static final Map<View, WallpaperPalette> SKIN_WALLPAPER_CACHE = new WeakHashMap<>();
 
     // Fast O(1) caches for Jetpack Compose color & theme-element hooks
@@ -273,6 +279,12 @@ final class MaterialYou {
     static void init(Application application) {
         if (application != null) {
             appContext = application.getApplicationContext();
+        }
+    }
+
+    static void registerActivity(View decorView, Activity activity) {
+        if (decorView != null && activity != null) {
+            DECOR_ACTIVITIES.put(decorView, new WeakReference<>(activity));
         }
     }
 
@@ -323,6 +335,7 @@ final class MaterialYou {
             return;
         }
         CHAT_IDS.remove(decorView);
+        DECOR_ACTIVITIES.remove(decorView);
         NAV_SCROLL_HOST.remove(decorView);
         ViewTreeObserver.OnScrollChangedListener scrollListener = NAV_SCROLL_LISTENERS.remove(decorView);
         if (scrollListener != null) {
@@ -3570,6 +3583,9 @@ final class MaterialYou {
         String chatId = resolveChatId(decorView, header, chatTitle);
         if (chatId != null && !chatId.isEmpty()) {
             lastActiveChatId = chatId;
+            if (!chatTitle.isEmpty() && !chatId.startsWith("title_") && !"default_chat".equals(chatId)) {
+                TITLE_TO_CHAT_ID.put(chatTitle, chatId);
+            }
         }
         if (!chatTitle.isEmpty()) {
             lastActiveChatTitle = chatTitle;
@@ -3601,34 +3617,90 @@ final class MaterialYou {
 
     private static int readStoredSendRule(String chatId, String chatTitle) {
         int val = LineSettings.chatBubbleSendColor(chatId);
-        if (val == 0 && chatTitle != null && !chatTitle.isEmpty()) {
-            String legacyKey = "title_" + chatTitle;
-            if (!legacyKey.equals(chatId)) {
-                int legacy = LineSettings.chatBubbleSendColor(legacyKey);
-                if (legacy != 0) {
-                    LineSettings.setChatBubbleColors(chatId, legacy, LineSettings.chatBubbleReceiveColor(legacyKey));
-                    LineSettings.clearChatBubbleColors(legacyKey);
-                    return legacy;
+        if (val != 0) {
+            return val;
+        }
+        if (chatTitle != null && !chatTitle.isEmpty()) {
+            String mappedId = TITLE_TO_CHAT_ID.get(chatTitle);
+            if (mappedId != null && !mappedId.equals(chatId)) {
+                int mv = LineSettings.chatBubbleSendColor(mappedId);
+                if (mv != 0) {
+                    return mv;
+                }
+            }
+            String titleKey = "title_" + chatTitle;
+            if (!titleKey.equals(chatId)) {
+                int tv = LineSettings.chatBubbleSendColor(titleKey);
+                if (tv != 0) {
+                    return tv;
                 }
             }
         }
-        return val;
+        return 0;
     }
 
     private static int readStoredRecvRule(String chatId, String chatTitle) {
         int val = LineSettings.chatBubbleReceiveColor(chatId);
-        if (val == 0 && chatTitle != null && !chatTitle.isEmpty()) {
-            String legacyKey = "title_" + chatTitle;
-            if (!legacyKey.equals(chatId)) {
-                int legacy = LineSettings.chatBubbleReceiveColor(legacyKey);
-                if (legacy != 0) {
-                    LineSettings.setChatBubbleColors(chatId, LineSettings.chatBubbleSendColor(legacyKey), legacy);
-                    LineSettings.clearChatBubbleColors(legacyKey);
-                    return legacy;
+        if (val != 0) {
+            return val;
+        }
+        if (chatTitle != null && !chatTitle.isEmpty()) {
+            String mappedId = TITLE_TO_CHAT_ID.get(chatTitle);
+            if (mappedId != null && !mappedId.equals(chatId)) {
+                int mv = LineSettings.chatBubbleReceiveColor(mappedId);
+                if (mv != 0) {
+                    return mv;
+                }
+            }
+            String titleKey = "title_" + chatTitle;
+            if (!titleKey.equals(chatId)) {
+                int tv = LineSettings.chatBubbleReceiveColor(titleKey);
+                if (tv != 0) {
+                    return tv;
                 }
             }
         }
-        return val;
+        return 0;
+    }
+
+    private static void savePerChatBubbleRules(String chatId, String chatTitle, int sendRule, int recvRule) {
+        LineSettings.setChatBubbleColors(chatId, sendRule, recvRule);
+        String activeId = lastActiveChatId;
+        if (activeId != null && !activeId.isEmpty() && !"default_chat".equals(activeId) && !activeId.equals(chatId)) {
+            LineSettings.setChatBubbleColors(activeId, sendRule, recvRule);
+        }
+        if (chatTitle != null && !chatTitle.isEmpty()) {
+            String titleKey = "title_" + chatTitle;
+            if (!titleKey.equals(chatId)) {
+                LineSettings.setChatBubbleColors(titleKey, sendRule, recvRule);
+            }
+            if (chatId != null && !chatId.isEmpty() && !chatId.startsWith("title_") && !"default_chat".equals(chatId)) {
+                TITLE_TO_CHAT_ID.put(chatTitle, chatId);
+            }
+        }
+        CHAT_IDS.clear();
+        BUBBLE_APPLIED.clear();
+        BUBBLE_BG_REF.clear();
+        BlurBars.refreshAllChats();
+    }
+
+    private static void clearPerChatBubbleRules(String chatId, String chatTitle) {
+        LineSettings.clearChatBubbleColors(chatId);
+        String activeId = lastActiveChatId;
+        if (activeId != null && !activeId.isEmpty() && !"default_chat".equals(activeId)) {
+            LineSettings.clearChatBubbleColors(activeId);
+        }
+        if (chatTitle != null && !chatTitle.isEmpty()) {
+            LineSettings.clearChatBubbleColors("title_" + chatTitle);
+            String mappedId = TITLE_TO_CHAT_ID.get(chatTitle);
+            if (mappedId != null) {
+                LineSettings.clearChatBubbleColors(mappedId);
+            }
+        }
+        CHAT_IDS.clear();
+        BUBBLE_APPLIED.clear();
+        BUBBLE_BG_REF.clear();
+        BlurBars.refreshAllChats();
     }
 
     static int resolveGlobalDefaultBubbleColor(boolean isSend, Palette myPalette) {
@@ -3951,59 +4023,93 @@ final class MaterialYou {
     // Chat Room ID Resolution (ClassLoader-safe for Parcelable ChatHistoryRequest)
     // =========================================================================
 
-    private static String extractChatIdFromIntent(Activity activity) {
-        if (activity == null) {
+    private static boolean isLineMid(String s) {
+        if (s == null || s.length() != 33) {
+            return false;
+        }
+        char prefix = s.charAt(0);
+        if (prefix != 'u' && prefix != 'c' && prefix != 'r' && prefix != 'm' && prefix != 's') {
+            return false;
+        }
+        for (int i = 1; i < 33; i++) {
+            char ch = s.charAt(i);
+            boolean hex = (ch >= '0' && ch <= '9')
+                    || (ch >= 'a' && ch <= 'f')
+                    || (ch >= 'A' && ch <= 'F');
+            if (!hex) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isFrameworkClassName(String clsName) {
+        return clsName == null
+                || clsName.startsWith("java.")
+                || clsName.startsWith("javax.")
+                || clsName.startsWith("android.")
+                || clsName.startsWith("androidx.")
+                || clsName.startsWith("com.android.")
+                || clsName.startsWith("kotlin.");
+    }
+
+    private static String findLineMidDeep(Object obj, int depth, IdentityHashMap<Object, Boolean> visited) {
+        if (obj == null || depth > 4) {
+            return null;
+        }
+        if (obj instanceof String) {
+            String str = (String) obj;
+            return isLineMid(str) ? str : null;
+        }
+        if (visited.put(obj, Boolean.TRUE) != null) {
             return null;
         }
         try {
-            Intent intent = activity.getIntent();
-            if (intent == null) {
+            if (obj instanceof Bundle) {
+                Bundle b = (Bundle) obj;
+                for (String k : b.keySet()) {
+                    String hit = findLineMidDeep(b.get(k), depth + 1, visited);
+                    if (hit != null) {
+                        return hit;
+                    }
+                }
                 return null;
             }
-            // Ensure Activity's APK ClassLoader is installed before unmarshalling Parcelables!
-            intent.setExtrasClassLoader(activity.getClassLoader());
-            for (String key : new String[]{"chatId", "chat_id", "mid", "squareChatMid", "EXTRA_CHAT_ID"}) {
-                String val = intent.getStringExtra(key);
-                if (val != null && !val.isEmpty()) {
-                    return val;
-                }
+            Class<?> cls = obj.getClass();
+            if (cls.isArray() || cls.isPrimitive() || cls.isEnum() || isFrameworkClassName(cls.getName())) {
+                return null;
             }
-            Bundle extras = intent.getExtras();
-            if (extras != null) {
-                extras.setClassLoader(activity.getClassLoader());
-                for (String reqKey : new String[]{"chatHistoryRequest", "request", "CHAT_HISTORY_REQUEST"}) {
-                    if (!extras.containsKey(reqKey)) {
+            // First pass: direct String fields on the class hierarchy
+            for (Class<?> c = cls; c != null && !isFrameworkClassName(c.getName()); c = c.getSuperclass()) {
+                for (Field f : c.getDeclaredFields()) {
+                    if (Modifier.isStatic(f.getModifiers()) || f.getType() != String.class) {
                         continue;
                     }
-                    Object req = extras.get(reqKey);
-                    String id = extractChatIdFromRequestObject(req);
-                    if (id != null && !id.isEmpty()) {
-                        return id;
-                    }
-                }
-                for (String key : extras.keySet()) {
-                    Object val = extras.get(key);
-                    if (val != null && val.getClass().getName().contains("ChatHistoryRequest")) {
-                        String id = extractChatIdFromRequestObject(val);
-                        if (id != null && !id.isEmpty()) {
-                            return id;
-                        }
+                    f.setAccessible(true);
+                    Object v = f.get(obj);
+                    if (v instanceof String && isLineMid((String) v)) {
+                        return (String) v;
                     }
                 }
             }
-        } catch (Throwable ignored) {
-        }
-        // Fallback: inspect fields on the Activity for ChatHistoryRequest / ViewModel holders
-        try {
-            for (Class<?> cls = activity.getClass(); cls != null && cls != Activity.class; cls = cls.getSuperclass()) {
-                for (Field f : cls.getDeclaredFields()) {
-                    String typeName = f.getType().getName();
-                    if (typeName.contains("ChatHistoryRequest")) {
+            // Second pass: nested non-framework objects (such as obfuscated ChatHistoryRequest wrappers)
+            if (depth < 4) {
+                for (Class<?> c = cls; c != null && !isFrameworkClassName(c.getName()); c = c.getSuperclass()) {
+                    for (Field f : c.getDeclaredFields()) {
+                        if (Modifier.isStatic(f.getModifiers())) {
+                            continue;
+                        }
+                        Class<?> ft = f.getType();
+                        if (ft.isPrimitive() || ft == String.class || ft.isArray() || ft.isEnum()) {
+                            continue;
+                        }
+                        if (ft != Bundle.class && isFrameworkClassName(ft.getName())) {
+                            continue;
+                        }
                         f.setAccessible(true);
-                        Object holder = f.get(activity);
-                        String id = extractChatIdFromRequestObject(holder);
-                        if (id != null && !id.isEmpty()) {
-                            return id;
+                        String hit = findLineMidDeep(f.get(obj), depth + 1, visited);
+                        if (hit != null) {
+                            return hit;
                         }
                     }
                 }
@@ -4013,41 +4119,103 @@ final class MaterialYou {
         return null;
     }
 
-    private static String extractChatIdFromRequestObject(Object obj) {
+    private static String extractChatIdFromIntent(Activity activity) {
+        if (activity == null) {
+            return null;
+        }
+        String explicitFallback = null;
+        try {
+            Intent intent = activity.getIntent();
+            if (intent != null) {
+                intent.setExtrasClassLoader(activity.getClassLoader());
+                for (String key : new String[]{"chatId", "chat_id", "mid", "squareChatMid", "EXTRA_CHAT_ID"}) {
+                    String val = intent.getStringExtra(key);
+                    if (val != null && !val.isEmpty()) {
+                        if (isLineMid(val)) {
+                            return val;
+                        }
+                        if (explicitFallback == null) {
+                            explicitFallback = val;
+                        }
+                    }
+                }
+                Bundle extras = intent.getExtras();
+                if (extras != null) {
+                    extras.setClassLoader(activity.getClassLoader());
+                    IdentityHashMap<Object, Boolean> visited = new IdentityHashMap<>();
+                    String mid = findLineMidDeep(extras, 0, visited);
+                    if (mid != null) {
+                        return mid;
+                    }
+                    for (String reqKey : new String[]{"chatHistoryRequest", "request", "CHAT_HISTORY_REQUEST"}) {
+                        if (!extras.containsKey(reqKey)) {
+                            continue;
+                        }
+                        Object req = extras.get(reqKey);
+                        String id = extractUnobfuscatedChatId(req);
+                        if (id != null && !id.isEmpty()) {
+                            return id;
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        // Inspect Activity fields for obfuscated ChatHistoryRequest or ViewModel holders containing a LINE MID
+        try {
+            IdentityHashMap<Object, Boolean> visited = new IdentityHashMap<>();
+            String mid = findLineMidDeep(activity, 1, visited);
+            if (mid != null) {
+                return mid;
+            }
+        } catch (Throwable ignored) {
+        }
+        return explicitFallback;
+    }
+
+    private static String extractUnobfuscatedChatId(Object obj) {
         if (obj == null) {
             return null;
         }
-        for (String methodName : new String[]{"getChatId", "c", "a"}) {
-            try {
-                Method m = obj.getClass().getMethod(methodName);
-                if (m.getReturnType() == String.class && m.getParameterCount() == 0) {
-                    Object res = m.invoke(obj);
-                    if (res instanceof String && !((String) res).isEmpty()) {
-                        return (String) res;
-                    }
+        try {
+            Method m = obj.getClass().getMethod("getChatId");
+            if (m.getReturnType() == String.class && m.getParameterCount() == 0) {
+                Object res = m.invoke(obj);
+                if (res instanceof String && !((String) res).isEmpty()) {
+                    return (String) res;
                 }
-            } catch (Throwable ignored) {
             }
+        } catch (Throwable ignored) {
         }
         try {
             for (Field f : obj.getClass().getDeclaredFields()) {
-                if (f.getType() == String.class && ("chatId".equals(f.getName()) || "a".equals(f.getName()))) {
+                if (f.getType() == String.class && "chatId".equals(f.getName())) {
                     f.setAccessible(true);
                     Object res = f.get(obj);
                     if (res instanceof String && !((String) res).isEmpty()) {
                         return (String) res;
-                    }
-                } else if (f.getType().getName().endsWith("ChatHistoryRequest")) {
-                    f.setAccessible(true);
-                    String nested = extractChatIdFromRequestObject(f.get(obj));
-                    if (nested != null && !nested.isEmpty()) {
-                        return nested;
                     }
                 }
             }
         } catch (Throwable ignored) {
         }
         return null;
+    }
+
+    private static Activity resolveActivity(View decorView, View header) {
+        if (decorView != null) {
+            WeakReference<Activity> ref = DECOR_ACTIVITIES.get(decorView);
+            if (ref != null && ref.get() != null) {
+                return ref.get();
+            }
+        }
+        if (header != null) {
+            Activity act = activityOf(header.getContext());
+            if (act != null) {
+                return act;
+            }
+        }
+        return decorView != null ? activityOf(decorView.getContext()) : null;
     }
 
     private static String resolveSettingsChatId(Activity activity) {
@@ -4069,13 +4237,18 @@ final class MaterialYou {
                 return cached;
             }
         }
-        Activity activity = activityOf(decorView.getContext());
+        Activity activity = resolveActivity(decorView, header);
         String extracted = extractChatIdFromIntent(activity);
         if (extracted != null && !extracted.isEmpty()) {
             CHAT_IDS.put(decorView, extracted);
             return extracted;
         }
         if (chatTitle != null && !chatTitle.isEmpty()) {
+            String mapped = TITLE_TO_CHAT_ID.get(chatTitle);
+            if (mapped != null && !mapped.isEmpty()) {
+                CHAT_IDS.put(decorView, mapped);
+                return mapped;
+            }
             String fallback = "title_" + chatTitle;
             CHAT_IDS.put(decorView, fallback);
             return fallback;
@@ -4092,7 +4265,7 @@ final class MaterialYou {
             return;
         }
         String name = activity.getClass().getName();
-        if (!name.endsWith("ChatSettingActivity") && !name.endsWith("SquareChatSettingsActivity")) {
+        if (!name.endsWith("ChatSettingActivity") && !name.endsWith("ChatSettingsActivity")) {
             return;
         }
         View root = activity.findViewById(android.R.id.content);
@@ -4338,18 +4511,50 @@ final class MaterialYou {
         root.addView(buildModeChipBar(activity, selectedSend, selectedRecv, updatePreview, modeChipsHolder, palette, zh));
 
         // Sent bubble picker
-        TextView sendLabel = sectionLabel(activity, zh ? "我的訊息氣泡自訂色（送出）" : "My bubble custom color (Sent)", palette.accent);
+        LinearLayout sendHeader = new LinearLayout(activity);
+        sendHeader.setOrientation(LinearLayout.HORIZONTAL);
+        sendHeader.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams slLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         slLp.topMargin = BlurBars.dp(activity, 12f);
-        root.addView(sendLabel, slLp);
+        TextView sendLabel = sectionLabel(activity, zh ? "我的訊息氣泡自訂色（送出）" : "My bubble custom color (Sent)", palette.accent);
+        sendHeader.addView(sendLabel, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView sendDefBtn = new TextView(activity);
+        sendDefBtn.setText(zh ? "維持經典綠" : "Classic green");
+        sendDefBtn.setTextSize(12f);
+        sendDefBtn.setTextColor(palette.dark ? 0xFFB8BDC7 : 0xFF5F6368);
+        sendDefBtn.setPadding(BlurBars.dp(activity, 8f), BlurBars.dp(activity, 4f), BlurBars.dp(activity, 4f), BlurBars.dp(activity, 8f));
+        PixelNativeEnhancements.enhanceInteractive(sendDefBtn);
+        sendDefBtn.setOnClickListener(v -> {
+            PixelNativeEnhancements.tick(v);
+            selectedSend[0] = MODE_LINE_DEFAULT;
+            updatePreview.run();
+        });
+        sendHeader.addView(sendDefBtn);
+        root.addView(sendHeader, slLp);
         root.addView(buildSwatchGrid(activity, selectedSend, updatePreview, sendSwatches));
         root.addView(buildHexRow(activity, selectedSend, updatePreview, zh));
 
         // Received bubble picker
-        TextView recvLabel = sectionLabel(activity, zh ? "對方訊息氣泡自訂色（接收）" : "Their bubble custom color (Received)", palette.accent);
+        LinearLayout recvHeader = new LinearLayout(activity);
+        recvHeader.setOrientation(LinearLayout.HORIZONTAL);
+        recvHeader.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams rlLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         rlLp.topMargin = BlurBars.dp(activity, 14f);
-        root.addView(recvLabel, rlLp);
+        TextView recvLabel = sectionLabel(activity, zh ? "對方訊息氣泡自訂色（接收）" : "Their bubble custom color (Received)", palette.accent);
+        recvHeader.addView(recvLabel, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView recvDefBtn = new TextView(activity);
+        recvDefBtn.setText(zh ? "維持原版" : "Default");
+        recvDefBtn.setTextSize(12f);
+        recvDefBtn.setTextColor(palette.dark ? 0xFFB8BDC7 : 0xFF5F6368);
+        recvDefBtn.setPadding(BlurBars.dp(activity, 8f), BlurBars.dp(activity, 4f), BlurBars.dp(activity, 4f), BlurBars.dp(activity, 8f));
+        PixelNativeEnhancements.enhanceInteractive(recvDefBtn);
+        recvDefBtn.setOnClickListener(v -> {
+            PixelNativeEnhancements.tick(v);
+            selectedRecv[0] = MODE_LINE_DEFAULT;
+            updatePreview.run();
+        });
+        recvHeader.addView(recvDefBtn);
+        root.addView(recvHeader, rlLp);
         root.addView(buildSwatchGrid(activity, selectedRecv, updatePreview, recvSwatches));
         root.addView(buildHexRow(activity, selectedRecv, updatePreview, zh));
 
@@ -4364,16 +4569,12 @@ final class MaterialYou {
                 .setView(scroll)
                 .setPositiveButton(zh ? "套用" : "Apply", (d, w) -> {
                     PixelNativeEnhancements.confirm(scroll);
-                    LineSettings.setChatBubbleColors(chatId, selectedSend[0], selectedRecv[0]);
-                    BUBBLE_APPLIED.clear();
-                    BUBBLE_BG_REF.clear();
+                    savePerChatBubbleRules(chatId, chatTitle, selectedSend[0], selectedRecv[0]);
                     if (onChanged != null) onChanged.run();
                 })
                 .setNeutralButton(zh ? "重設自動" : "Reset", (d, w) -> {
                     PixelNativeEnhancements.confirm(scroll);
-                    LineSettings.clearChatBubbleColors(chatId);
-                    BUBBLE_APPLIED.clear();
-                    BUBBLE_BG_REF.clear();
+                    clearPerChatBubbleRules(chatId, chatTitle);
                     if (onChanged != null) onChanged.run();
                 })
                 .setNegativeButton(zh ? "取消" : "Cancel", null)
@@ -4548,6 +4749,36 @@ final class MaterialYou {
         if ((target[0] & 0xFF000000) == 0xFF000000) {
             hexInput.setText(String.format(Locale.US, "#%06X", 0xFFFFFF & target[0]));
         }
+        hexInput.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                if (!hexInput.hasFocus() || s == null) {
+                    return;
+                }
+                String raw = s.toString().trim();
+                if (raw.startsWith("#")) {
+                    raw = raw.substring(1);
+                }
+                if (raw.length() == 6) {
+                    try {
+                        int parsed = Color.parseColor("#" + raw) | 0xFF000000;
+                        if (target[0] != parsed) {
+                            target[0] = parsed;
+                            updatePreview.run();
+                        }
+                    } catch (IllegalArgumentException ignored) {
+                    }
+                }
+            }
+        });
         LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         row.addView(hexInput, elp);
 
@@ -4811,6 +5042,7 @@ final class MaterialYou {
                     LineSettings.setChatBubbleDefaultColors(customSend[0], customRecv[0]);
                     BUBBLE_APPLIED.clear();
                     BUBBLE_BG_REF.clear();
+                    BlurBars.refreshAllChats();
                     if (onChanged != null) {
                         onChanged.run();
                     }
@@ -4821,6 +5053,7 @@ final class MaterialYou {
                     LineSettings.setChatBubbleDefaultColors(0, 0);
                     BUBBLE_APPLIED.clear();
                     BUBBLE_BG_REF.clear();
+                    BlurBars.refreshAllChats();
                     if (onChanged != null) {
                         onChanged.run();
                     }
