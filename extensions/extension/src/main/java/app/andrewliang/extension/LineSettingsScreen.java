@@ -319,19 +319,29 @@ final class LineSettingsScreen {
                         t("White chat header text & icons", "聊天室標題列使用白色文字與圖示"),
                         t("Keeps the chat name and right-side header icons white so they stay easy to read on any background.", "將聊天室上方對方名字與右側圖示統一改為白色，確保在各種背景上都清晰易讀。"),
                         true, null));
+                final Runnable[] refreshDefaultBubbleRow = new Runnable[1];
                 View myThemeRow = toggle(activity, LineSettings.MATERIAL_YOU_THEME,
                         t("Material You dynamic colors", "Material You 動態配色"),
-                        t("Applies your Android wallpaper or custom Material You palette across LINE, including chat bubbles, unread count badges, folder tabs, and settings accents. Open any chat's menu -> Settings -> Chat bubble color to customize that chat individually.", "將系統桌布或自選的 Material You 個人調色盤套用到 LINE，包含聊天氣泡、未讀訊息數字膠囊、分類膠囊與設定強調色。可於聊天室右上角選單 → 設定 → 聊天氣泡顏色單獨自訂各聊天室氣泡。"),
+                        t("Applies your Android wallpaper or custom Material You palette to unread count badges, folder tabs, and settings accents. Chat bubbles use their own setting below.", "將系統桌布或自選的 Material You 個人調色盤套用到未讀訊息數字膠囊、分類膠囊與設定強調色。聊天室氣泡配色已獨立於下方設定。"),
                         true, () -> {
                             MaterialYou.invalidatePaletteCache();
+                            if (refreshDefaultBubbleRow[0] != null) {
+                                refreshDefaultBubbleRow[0].run();
+                            }
                             restart.setVisibility(View.VISIBLE);
                         });
                 content.addView(myThemeRow);
-                content.addView(materialYouPaletteRow(activity, myThemeRow, () -> restart.setVisibility(View.VISIBLE)));
+                content.addView(materialYouPaletteRow(activity, myThemeRow, () -> {
+                    if (refreshDefaultBubbleRow[0] != null) {
+                        refreshDefaultBubbleRow[0].run();
+                    }
+                    restart.setVisibility(View.VISIBLE);
+                }));
                 content.addView(toggle(activity, LineSettings.CHAT_BUBBLE_WALLPAPER,
                         t("Auto-extract chat wallpaper color for bubbles", "聊天氣泡自動抓取聊天室背景主色"),
-                        t("Automatically picks harmonious sent and received bubble colors from each chat room's background image. Chats with no background image fall back to Material You.", "自動從各聊天室的背景圖片擷取主色調來搭配送出與接收氣泡；無背景圖片的聊天室則自動使用系統 Material You 配色。"),
+                        t("Picks harmonious sent and received bubble colors from each chat background image. Chats with no background image use the default chat bubble color below.", "自動從各聊天室的自訂背景圖片擷取主色調來搭配送出與接收氣泡；沒有自訂背景圖片（如 LINE 預設藍天底）的聊天室則使用下方的「預設聊天氣泡配色」。"),
                         true, null));
+                content.addView(defaultChatBubbleColorRow(activity, refreshDefaultBubbleRow));
                 content.addView(toggle(activity, LineSettings.MATERIAL_YOU_NAV_BAR,
                         t("Material You bottom navigation bar", "底部導覽列使用 Material You 配色"),
                         t("Colors the main screen bottom tabs (Home, Chats, etc.) with Material You instead of black.", "主畫面底部的分頁列（主頁、聊天等）改用 Material You 配色取代原本的黑色。"),
@@ -508,6 +518,70 @@ final class LineSettingsScreen {
                     onChanged.run();
                 }
             });
+        });
+        return row;
+    }
+
+    private static View defaultChatBubbleColorRow(Activity activity, Runnable[] refreshOut) {
+        View row = row(activity,
+                t("Default chat bubble color", "預設聊天氣泡配色"),
+                "",
+                true);
+        TextView desc = row.findViewById(id(activity, "setting_description", "id"));
+        TextView value = row.findViewById(id(activity, "setting_inlined_value", "id"));
+        value.setVisibility(View.VISIBLE);
+        value.setCompoundDrawablePadding(dp(activity, 6));
+        look.paint(value, look.secondary());
+
+        final Runnable refreshRow = () -> {
+            int mode = LineSettings.chatBubbleDefaultMode();
+            if (mode == LineSettings.DEFAULT_BUBBLE_CUSTOM) {
+                int send = LineSettings.chatBubbleDefaultSendColor();
+                int recv = LineSettings.chatBubbleDefaultReceiveColor();
+                String hexSummary;
+                if (send != 0 && recv != 0) {
+                    hexSummary = String.format(Locale.US, "#%06X / #%06X", 0xFFFFFF & send, 0xFFFFFF & recv);
+                } else if (send != 0) {
+                    hexSummary = String.format(Locale.US, "#%06X", 0xFFFFFF & send);
+                } else if (recv != 0) {
+                    hexSummary = String.format(Locale.US, "#%06X", 0xFFFFFF & recv);
+                } else {
+                    hexSummary = "#8DE971";
+                }
+                desc.setText(t(
+                        "Uses your custom bubble color (" + hexSummary + ") in chats with no background image. Open Chat Settings in any chat to override that chat.",
+                        "在沒有自訂背景圖片的聊天室套用自訂預設氣泡配色（" + hexSummary + "）。仍可於各聊天室「設定 → 聊天氣泡顏色」單獨覆寫。"
+                ));
+                value.setText(t("Custom", "自訂顏色"));
+            } else if (mode == LineSettings.DEFAULT_BUBBLE_MATERIAL_YOU) {
+                desc.setText(t(
+                        "Follows your Material You palette in chats with no background image. Tap to switch to LINE classic green or a custom color.",
+                        "在沒有自訂背景圖片的聊天室跟隨 Material You 調色盤變色。點一下可改回 LINE 經典綠色或自訂顏色。"
+                ));
+                value.setText("Material You");
+            } else {
+                desc.setText(t(
+                        "Keeps classic green bubbles in chats with no background image. Tap to pick a custom color or follow Material You. Open Chat Settings in any chat to override that chat.",
+                        "在沒有自訂背景圖片（如 LINE 預設藍天底）的聊天室維持 LINE 經典綠色氣泡。點一下可改為自訂顏色或跟隨 Material You；仍可於各聊天室「設定 → 聊天氣泡顏色」單獨覆寫。"
+                ));
+                value.setText(t("LINE Green", "LINE 經典綠"));
+            }
+            int dotPx = dp(activity, 14);
+            GradientDrawable dot = new GradientDrawable();
+            dot.setShape(GradientDrawable.OVAL);
+            dot.setSize(dotPx, dotPx);
+            dot.setColor(MaterialYou.defaultBubblePreviewDotColor(activity));
+            dot.setStroke(Math.max(1, dp(activity, 1)), 0x38888888);
+            value.setCompoundDrawablesRelativeWithIntrinsicBounds(dot, null, null, null);
+        };
+        if (refreshOut != null && refreshOut.length > 0) {
+            refreshOut[0] = refreshRow;
+        }
+        refreshRow.run();
+
+        row.setOnClickListener(v -> {
+            PixelNativeEnhancements.tick(v);
+            MaterialYou.showDefaultBubbleColorDialog(activity, refreshRow);
         });
         return row;
     }

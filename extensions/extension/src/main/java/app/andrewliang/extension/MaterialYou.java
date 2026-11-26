@@ -165,12 +165,15 @@ final class MaterialYou {
             "chat_ui_row_timeline_message_location_icon_background",
     };
 
+    static final int LINE_CLASSIC_GREEN = 0xFF8DE971;
+
     private static final int[] PRESET_COLORS = {
             0xFFD3E3FD, // Sky Mist
             0xFFC4EED0, // Mint Leaf
             0xFFEADDFF, // Lavender
             0xFFFFD8E4, // Rose Petal
             0xFFFFE0B2, // Warm Apricot
+            LINE_CLASSIC_GREEN, // LINE Classic Green
             0xFF1A73E8, // Pixel Blue
             0xFF006D5B, // Deep Teal
             0xFF6750A4, // Royal Violet
@@ -199,6 +202,8 @@ final class MaterialYou {
     private static final Map<View, Integer> BUBBLE_APPLIED = new WeakHashMap<>();
     private static final Map<View, Drawable> BUBBLE_BG_REF = new WeakHashMap<>();
     private static final Map<View, int[]> ORIG_BUBBLE_PADDING = new WeakHashMap<>();
+    private static final Map<TextView, ColorStateList> ORIG_BUBBLE_TEXT_COLORS = new WeakHashMap<>();
+    private static final Map<TextView, ColorStateList> ORIG_BUBBLE_LINK_COLORS = new WeakHashMap<>();
     private static final Map<View, int[]> ORIG_BADGE_PADDING = new WeakHashMap<>();
     private static final Map<View, Integer> NAV_APPLIED = new WeakHashMap<>();
     private static final class NavExpandState {
@@ -276,6 +281,7 @@ final class MaterialYou {
                 || LineSettings.materialYouNavBar()
                 || LineSettings.navBarPill()
                 || LineSettings.chatBubbleWallpaper()
+                || LineSettings.chatBubbleDefaultMode() != LineSettings.DEFAULT_BUBBLE_LINE_CLASSIC
                 || LineSettings.chatHeaderWhite()
                 || LineSettings.pixelFoldAdaptive()
                 || LineSettings.hasAnyChatBubbleColors();
@@ -682,15 +688,15 @@ final class MaterialYou {
             if (skinView == null || skinView.getVisibility() != View.VISIBLE) {
                 return null;
             }
+            if (!BlurBars.hasCoveringArtwork(skinView)) {
+                SKIN_WALLPAPER_CACHE.remove(skinView);
+                return null;
+            }
             Drawable d = skinView instanceof ImageView ? ((ImageView) skinView).getDrawable() : null;
             if (d == null) {
                 d = skinView.getBackground();
             }
             if (d == null || d instanceof NinePatchDrawable) {
-                SKIN_WALLPAPER_CACHE.remove(skinView);
-                return null;
-            }
-            if (d instanceof ColorDrawable && Color.alpha(((ColorDrawable) d).getColor()) < 32) {
                 SKIN_WALLPAPER_CACHE.remove(skinView);
                 return null;
             }
@@ -3625,6 +3631,20 @@ final class MaterialYou {
         return val;
     }
 
+    static int resolveGlobalDefaultBubbleColor(boolean isSend, Palette myPalette) {
+        int mode = LineSettings.chatBubbleDefaultMode();
+        if (mode == LineSettings.DEFAULT_BUBBLE_CUSTOM) {
+            int custom = isSend
+                    ? LineSettings.chatBubbleDefaultSendColor()
+                    : LineSettings.chatBubbleDefaultReceiveColor();
+            return (custom & 0xFF000000) == 0xFF000000 ? custom : 0;
+        }
+        if (mode == LineSettings.DEFAULT_BUBBLE_MATERIAL_YOU) {
+            return myPalette != null ? (isSend ? myPalette.sendBubble : myPalette.receiveBubble) : 0;
+        }
+        return 0;
+    }
+
     private static int resolveEffectiveBubbleColor(
             int rule,
             boolean isSend,
@@ -3642,23 +3662,20 @@ final class MaterialYou {
             if (wp != null && wp.valid) {
                 return isSend ? wp.sendBubble : wp.receiveBubble;
             }
-            return myPalette != null ? (isSend ? myPalette.sendBubble : myPalette.receiveBubble) : 0;
+            return resolveGlobalDefaultBubbleColor(isSend, myPalette);
         }
         if (rule == MODE_MATERIAL_YOU) {
             return myPalette != null ? (isSend ? myPalette.sendBubble : myPalette.receiveBubble) : 0;
         }
-        // MODE_AUTO (0): follow global preferences
+        // MODE_AUTO (0): use the chat wallpaper color when an image is set, or the global default bubble color.
         if (LineSettings.chatBubbleWallpaper() && wp != null && wp.valid) {
             return isSend ? wp.sendBubble : wp.receiveBubble;
         }
-        if (LineSettings.materialYouTheme() && myPalette != null) {
-            return isSend ? myPalette.sendBubble : myPalette.receiveBubble;
-        }
-        return 0;
+        return resolveGlobalDefaultBubbleColor(isSend, myPalette);
     }
 
     static void applyChatBubbles(ViewGroup listView, int sendRule, int recvRule, WallpaperPalette wp) {
-        boolean needsPalette = LineSettings.materialYouTheme()
+        boolean needsPalette = LineSettings.chatBubbleDefaultMode() == LineSettings.DEFAULT_BUBBLE_MATERIAL_YOU
                 || sendRule == MODE_MATERIAL_YOU || recvRule == MODE_MATERIAL_YOU
                 || sendRule == MODE_WALLPAPER || recvRule == MODE_WALLPAPER;
         Palette palette = needsPalette ? Palette.of(listView.getContext()) : null;
@@ -3684,30 +3701,65 @@ final class MaterialYou {
 
     private static void clearRowBubbles(View row) {
         for (String idName : BUBBLE_CONTAINER_IDS) {
-            View bubble = BlurBars.find(row, idName);
-            if (bubble == null || BUBBLE_APPLIED.remove(bubble) == null) {
-                continue;
-            }
-            BUBBLE_BG_REF.remove(bubble);
-            Drawable bg = bubble.getBackground();
-            if (bg != null) {
-                bg.clearColorFilter();
-                bg.setTintList(null);
-            }
-            bubble.setBackgroundTintList(null);
+            clearBubbleContainer(BlurBars.find(row, idName));
         }
         for (String quoteId : BUBBLE_QUOTE_CONTAINER_IDS) {
-            View quote = BlurBars.find(row, quoteId);
-            if (quote == null || BUBBLE_APPLIED.remove(quote) == null) {
-                continue;
+            clearBubbleContainer(BlurBars.find(row, quoteId));
+        }
+    }
+
+    private static void clearBubbleContainer(View container) {
+        if (container == null) {
+            return;
+        }
+        boolean hadApplied = BUBBLE_APPLIED.remove(container) != null;
+        boolean hadOrigPad = ORIG_BUBBLE_PADDING.remove(container) != null;
+        if (!hadApplied && !hadOrigPad) {
+            return;
+        }
+        BUBBLE_BG_REF.remove(container);
+        Drawable bg = container.getBackground();
+        if (bg != null) {
+            bg.clearColorFilter();
+            bg.setTintList(null);
+        }
+        container.setBackgroundTintList(null);
+
+        for (String textId : BUBBLE_TEXT_IDS) {
+            View tv = BlurBars.find(container, textId);
+            if (tv instanceof TextView) {
+                TextView textView = (TextView) tv;
+                ColorStateList origText = ORIG_BUBBLE_TEXT_COLORS.remove(textView);
+                if (origText != null) {
+                    textView.setTextColor(origText);
+                }
+                ColorStateList origLink = ORIG_BUBBLE_LINK_COLORS.remove(textView);
+                if (origLink != null) {
+                    textView.setLinkTextColor(origLink);
+                }
             }
-            BUBBLE_BG_REF.remove(quote);
-            Drawable bg = quote.getBackground();
-            if (bg != null) {
-                bg.clearColorFilter();
-                bg.setTintList(null);
+        }
+        for (String subId : BUBBLE_SUBTEXT_IDS) {
+            View tv = BlurBars.find(container, subId);
+            if (tv instanceof TextView) {
+                TextView textView = (TextView) tv;
+                ColorStateList origSub = ORIG_BUBBLE_TEXT_COLORS.remove(textView);
+                if (origSub != null) {
+                    textView.setTextColor(origSub);
+                }
             }
-            quote.setBackgroundTintList(null);
+        }
+        for (String voiceIconId : BUBBLE_VOICE_ICON_IDS) {
+            View v = BlurBars.find(container, voiceIconId);
+            if (v instanceof ImageView) {
+                ((ImageView) v).setImageTintList(null);
+            }
+        }
+        for (String circleId : BUBBLE_ACCENT_CIRCLE_IDS) {
+            View circle = BlurBars.find(container, circleId);
+            if (circle != null) {
+                circle.setBackgroundTintList(null);
+            }
         }
     }
 
@@ -3742,7 +3794,7 @@ final class MaterialYou {
                 continue;
             }
             applyBubbleBackgroundTint(bubble, bubbleColor, bubbleCsl);
-            tintBubbleTexts(bubble, textColor, subTextColor, linkColor, dividerColor);
+            tintBubbleTexts(bubble, bubbleColor, textColor, subTextColor, linkColor, dividerColor);
         }
 
         int quoteColor = blend(bubbleColor, lightBubble ? 0xFF000000 : 0xFFFFFFFF, 0.08f) | 0xFF000000;
@@ -3751,7 +3803,7 @@ final class MaterialYou {
             View quote = BlurBars.find(row, quoteId);
             if (quote != null && quote.getVisibility() == View.VISIBLE) {
                 applyBubbleBackgroundTint(quote, quoteColor, quoteCsl);
-                tintBubbleTexts(quote, textColor, subTextColor, linkColor, dividerColor);
+                tintBubbleTexts(quote, quoteColor, textColor, subTextColor, linkColor, dividerColor);
             }
         }
     }
@@ -3804,15 +3856,44 @@ final class MaterialYou {
         }
     }
 
-    private static void tintBubbleTexts(View container, int textColor, int subTextColor, int linkColor, int dividerColor) {
+    private static int deriveBubbleAccent(Context context, int bubbleColor, int fallbackTextColor) {
+        float[] hsv = new float[3];
+        Color.colorToHSV(bubbleColor | 0xFF000000, hsv);
+        if (hsv[1] >= 0.08f) {
+            return Color.HSVToColor(new float[]{
+                    hsv[0],
+                    Math.min(0.82f, Math.max(0.45f, hsv[1] * 1.8f)),
+                    0.48f
+            }) | 0xFF000000;
+        }
+        if (LineSettings.chatBubbleDefaultMode() == LineSettings.DEFAULT_BUBBLE_MATERIAL_YOU) {
+            return Palette.forMode(context, false).pillBg;
+        }
+        return fallbackTextColor;
+    }
+
+    private static void tintBubbleTexts(
+            View container,
+            int bubbleColor,
+            int textColor,
+            int subTextColor,
+            int linkColor,
+            int dividerColor
+    ) {
         for (String textId : BUBBLE_TEXT_IDS) {
             View tv = BlurBars.find(container, textId);
             if (tv instanceof TextView) {
                 TextView textView = (TextView) tv;
+                if (!ORIG_BUBBLE_TEXT_COLORS.containsKey(textView) && textView.getTextColors() != null) {
+                    ORIG_BUBBLE_TEXT_COLORS.put(textView, textView.getTextColors());
+                }
                 if (textView.getCurrentTextColor() != textColor) {
                     textView.setTextColor(textColor);
                 }
                 ColorStateList curLink = textView.getLinkTextColors();
+                if (!ORIG_BUBBLE_LINK_COLORS.containsKey(textView) && curLink != null) {
+                    ORIG_BUBBLE_LINK_COLORS.put(textView, curLink);
+                }
                 if (curLink == null || curLink.getDefaultColor() != linkColor) {
                     textView.setLinkTextColor(linkColor);
                 }
@@ -3822,6 +3903,9 @@ final class MaterialYou {
             View tv = BlurBars.find(container, subId);
             if (tv instanceof TextView) {
                 TextView textView = (TextView) tv;
+                if (!ORIG_BUBBLE_TEXT_COLORS.containsKey(textView) && textView.getTextColors() != null) {
+                    ORIG_BUBBLE_TEXT_COLORS.put(textView, textView.getTextColors());
+                }
                 if (textView.getCurrentTextColor() != subTextColor) {
                     textView.setTextColor(subTextColor);
                 }
@@ -3836,9 +3920,8 @@ final class MaterialYou {
                 }
             }
         }
-        boolean materialYouOn = LineSettings.materialYouTheme();
-        int voiceIconTint = (materialYouOn && textColor == 0xFF1A1C1E)
-                ? Palette.forMode(container.getContext(), false).pillBg
+        int voiceIconTint = (textColor == 0xFF1A1C1E)
+                ? deriveBubbleAccent(container.getContext(), bubbleColor, textColor)
                 : textColor;
         for (String voiceIconId : BUBBLE_VOICE_ICON_IDS) {
             View v = BlurBars.find(container, voiceIconId);
@@ -3851,16 +3934,14 @@ final class MaterialYou {
                 }
             }
         }
-        if (materialYouOn) {
-            int circleAccent = Palette.of(container.getContext()).badgeBg;
-            for (String circleId : BUBBLE_ACCENT_CIRCLE_IDS) {
-                View circle = BlurBars.find(container, circleId);
-                if (circle != null && circle.getVisibility() == View.VISIBLE && circle.getBackground() != null) {
-                    ColorStateList cur = circle.getBackgroundTintList();
-                    if (cur == null || cur.getDefaultColor() != circleAccent) {
-                        circle.setBackgroundTintMode(PorterDuff.Mode.SRC_IN);
-                        circle.setBackgroundTintList(ColorStateList.valueOf(circleAccent));
-                    }
+        int circleAccent = deriveBubbleAccent(container.getContext(), bubbleColor, 0xFF06C755);
+        for (String circleId : BUBBLE_ACCENT_CIRCLE_IDS) {
+            View circle = BlurBars.find(container, circleId);
+            if (circle != null && circle.getVisibility() == View.VISIBLE && circle.getBackground() != null) {
+                ColorStateList cur = circle.getBackgroundTintList();
+                if (cur == null || cur.getDefaultColor() != circleAccent) {
+                    circle.setBackgroundTintMode(PorterDuff.Mode.SRC_IN);
+                    circle.setBackgroundTintList(ColorStateList.valueOf(circleAccent));
                 }
             }
         }
@@ -4103,7 +4184,7 @@ final class MaterialYou {
                 int effSend = resolveEffectiveBubbleColor(sendRule, true, p, wp);
                 int effRecv = resolveEffectiveBubbleColor(recvRule, false, p, wp);
                 styleColorDot(activity, recvDot, effRecv != 0 ? effRecv : (p.dark ? 0xFF2B2D31 : 0xFFFFFFFF));
-                styleColorDot(activity, sendDot, effSend != 0 ? effSend : 0xFF66D575);
+                styleColorDot(activity, sendDot, effSend != 0 ? effSend : LINE_CLASSIC_GREEN);
                 subTv.setText(describeBubbleMode(sendRule, recvRule, zh));
             };
             refreshDots.run();
@@ -4148,18 +4229,31 @@ final class MaterialYou {
             return zh ? "已套用此聊天室專屬自訂氣泡顏色" : "Custom colors active for this chat";
         }
         if (sendRule == MODE_WALLPAPER) {
-            return zh ? "自動抓取此聊天室背景圖片主色" : "Using this chat's wallpaper seed color";
+            return zh ? "自動抓取此聊天室背景圖片主色" : "Using chat wallpaper seed color";
         }
         if (sendRule == MODE_MATERIAL_YOU) {
-            return zh ? "使用系統 Material You 動態配色" : "Using Android Material You palette";
+            return zh ? "使用 Material You 動態配色" : "Using Material You palette";
         }
         if (sendRule == MODE_LINE_DEFAULT) {
-            return zh ? "維持 LINE 原版預設氣泡顏色" : "Using LINE default bubble colors";
+            return zh ? "維持 LINE 原版經典綠色氣泡" : "Using LINE classic green bubbles";
+        }
+        int defMode = LineSettings.chatBubbleDefaultMode();
+        String fallbackLabel;
+        if (defMode == LineSettings.DEFAULT_BUBBLE_CUSTOM) {
+            fallbackLabel = zh ? "全域自訂色" : "Custom default";
+        } else if (defMode == LineSettings.DEFAULT_BUBBLE_MATERIAL_YOU) {
+            fallbackLabel = "Material You";
+        } else {
+            fallbackLabel = zh ? "LINE 經典綠色" : "LINE classic green";
         }
         if (LineSettings.chatBubbleWallpaper()) {
-            return zh ? "自動（優先抓取聊天室背景主色 / Material You）" : "Auto (Chat wallpaper seed / Material You)";
+            return zh
+                    ? ("自動（有背景圖抓主色，無背景圖用 " + fallbackLabel + "）")
+                    : ("Auto (Chat wallpaper or " + fallbackLabel + ")");
         }
-        return zh ? "跟隨全域設定 · 點擊可自訂送出與接收氣泡" : "Follows global setting · Tap to customize";
+        return zh
+                ? ("跟隨全域預設（" + fallbackLabel + "）· 點擊可單獨自訂")
+                : ("Follows global default (" + fallbackLabel + ")");
     }
 
     private static void styleColorDot(Context ctx, View dot, int color) {
@@ -4480,6 +4574,264 @@ final class MaterialYou {
         return row;
     }
 
+    static int defaultBubblePreviewDotColor(Context context) {
+        int mode = LineSettings.chatBubbleDefaultMode();
+        if (mode == LineSettings.DEFAULT_BUBBLE_CUSTOM) {
+            int send = LineSettings.chatBubbleDefaultSendColor();
+            if ((send & 0xFF000000) == 0xFF000000) {
+                return send;
+            }
+            int recv = LineSettings.chatBubbleDefaultReceiveColor();
+            if ((recv & 0xFF000000) == 0xFF000000) {
+                return recv;
+            }
+            return LINE_CLASSIC_GREEN;
+        }
+        if (mode == LineSettings.DEFAULT_BUBBLE_MATERIAL_YOU) {
+            return Palette.of(context).sendBubble;
+        }
+        return LINE_CLASSIC_GREEN;
+    }
+
+    static void showDefaultBubbleColorDialog(Activity activity, Runnable onChanged) {
+        if (activity == null || activity.isFinishing()) {
+            return;
+        }
+        Locale locale = activity.getResources().getConfiguration().getLocales().get(0);
+        final boolean zh = locale != null && "zh".equals(locale.getLanguage());
+        final Palette palette = Palette.of(activity);
+        final boolean dark = palette.dark;
+
+        final int[] selectedMode = {LineSettings.chatBubbleDefaultMode()};
+        final int[] customSend = {LineSettings.chatBubbleDefaultSendColor()};
+        final int[] customRecv = {LineSettings.chatBubbleDefaultReceiveColor()};
+
+        ScrollView scroll = new ScrollView(activity);
+        LinearLayout root = new LinearLayout(activity);
+        root.setOrientation(LinearLayout.VERTICAL);
+        int pad = BlurBars.dp(activity, 18.0f);
+        root.setPadding(pad, BlurBars.dp(activity, 12.0f), pad, BlurBars.dp(activity, 8.0f));
+        scroll.addView(root);
+
+        // Live preview card with the default LINE sky-blue backdrop in light mode.
+        LinearLayout previewBox = new LinearLayout(activity);
+        previewBox.setOrientation(LinearLayout.VERTICAL);
+        int previewPad = BlurBars.dp(activity, 14.0f);
+        previewBox.setPadding(previewPad, previewPad, previewPad, previewPad);
+        GradientDrawable previewBg = new GradientDrawable();
+        previewBg.setCornerRadius(BlurBars.dp(activity, 16.0f));
+        previewBg.setColor(dark ? 0xFF1A1D24 : 0xFF8CABD9);
+        previewBg.setStroke(Math.max(1, BlurBars.dp(activity, 1f)), dark ? 0x26FFFFFF : 0x1A000000);
+        previewBox.setBackground(previewBg);
+
+        final TextView recvPreview = new TextView(activity);
+        recvPreview.setText(zh ? "對方的訊息氣泡預覽" : "Received bubble preview");
+        recvPreview.setTextSize(14f);
+        recvPreview.setPadding(BlurBars.dp(activity, 14f), BlurBars.dp(activity, 8f), BlurBars.dp(activity, 14f), BlurBars.dp(activity, 8f));
+        LinearLayout.LayoutParams recvLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        recvLp.gravity = Gravity.START;
+        recvLp.bottomMargin = BlurBars.dp(activity, 8f);
+        previewBox.addView(recvPreview, recvLp);
+
+        final TextView sendPreview = new TextView(activity);
+        sendPreview.setText(zh ? "我的訊息氣泡預覽" : "Sent bubble preview");
+        sendPreview.setTextSize(14f);
+        sendPreview.setPadding(BlurBars.dp(activity, 14f), BlurBars.dp(activity, 8f), BlurBars.dp(activity, 14f), BlurBars.dp(activity, 8f));
+        LinearLayout.LayoutParams sendLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sendLp.gravity = Gravity.END;
+        previewBox.addView(sendPreview, sendLp);
+
+        LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        previewLp.bottomMargin = BlurBars.dp(activity, 14f);
+        root.addView(previewBox, previewLp);
+
+        // Mode chips: LINE Classic Green / Custom Color / Follow Material You
+        root.addView(sectionLabel(activity, zh ? "預設氣泡配色模式" : "Default bubble mode", palette.accent));
+
+        final int[] modeValues = {
+                LineSettings.DEFAULT_BUBBLE_LINE_CLASSIC,
+                LineSettings.DEFAULT_BUBBLE_CUSTOM,
+                LineSettings.DEFAULT_BUBBLE_MATERIAL_YOU,
+        };
+        final String[] modeLabels = zh
+                ? new String[]{"LINE 經典綠色", "自訂顏色", "跟隨 Material You"}
+                : new String[]{"LINE classic green", "Custom color", "Follow Material You"};
+
+        HorizontalScrollView chipScroll = new HorizontalScrollView(activity);
+        chipScroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout chipBar = new LinearLayout(activity);
+        chipBar.setOrientation(LinearLayout.HORIZONTAL);
+        final TextView[] modeChips = new TextView[modeValues.length];
+        int chipPadH = BlurBars.dp(activity, 12f);
+        int chipPadV = BlurBars.dp(activity, 7f);
+        int chipGap = BlurBars.dp(activity, 8f);
+        for (int i = 0; i < modeValues.length; i++) {
+            TextView chip = new TextView(activity);
+            chip.setText(modeLabels[i]);
+            chip.setTextSize(12.5f);
+            chip.setPadding(chipPadH, chipPadV, chipPadH, chipPadV);
+            chip.setGravity(Gravity.CENTER);
+            PixelNativeEnhancements.enhanceInteractive(chip);
+            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+            );
+            if (i < modeValues.length - 1) {
+                clp.setMarginEnd(chipGap);
+            }
+            chip.setLayoutParams(clp);
+            modeChips[i] = chip;
+            chipBar.addView(chip);
+        }
+        chipScroll.addView(chipBar);
+        root.addView(chipScroll);
+
+        final View[][] sendSwatches = new View[1][];
+        final View[][] recvSwatches = new View[1][];
+
+        final Runnable refreshDialogUi = () -> {
+            int previewSend;
+            int previewRecv;
+            if (selectedMode[0] == LineSettings.DEFAULT_BUBBLE_MATERIAL_YOU) {
+                previewSend = palette.sendBubble;
+                previewRecv = palette.receiveBubble;
+            } else if (selectedMode[0] == LineSettings.DEFAULT_BUBBLE_CUSTOM) {
+                previewSend = (customSend[0] & 0xFF000000) == 0xFF000000 ? customSend[0] : LINE_CLASSIC_GREEN;
+                previewRecv = (customRecv[0] & 0xFF000000) == 0xFF000000 ? customRecv[0] : (dark ? 0xFF2B2D31 : 0xFFFFFFFF);
+            } else {
+                previewSend = LINE_CLASSIC_GREEN;
+                previewRecv = dark ? 0xFF2B2D31 : 0xFFFFFFFF;
+            }
+            stylePreviewBubble(sendPreview, previewSend, BlurBars.dp(activity, 16f));
+            stylePreviewBubble(recvPreview, previewRecv, BlurBars.dp(activity, 16f));
+
+            float radius = BlurBars.dp(activity, 999f);
+            int strokePx = Math.max(1, BlurBars.dp(activity, 1f));
+            for (int i = 0; i < modeChips.length; i++) {
+                boolean active = selectedMode[0] == modeValues[i];
+                GradientDrawable gd = new GradientDrawable();
+                gd.setCornerRadius(radius);
+                if (active) {
+                    gd.setColor(palette.accent);
+                    modeChips[i].setTextColor(isLightColor(palette.accent) ? 0xFF1A1C1E : 0xFFFFFFFF);
+                } else {
+                    gd.setColor(dark ? 0xFF252830 : 0xFFF1F4F9);
+                    gd.setStroke(strokePx, dark ? 0x33FFFFFF : 0x22000000);
+                    modeChips[i].setTextColor(dark ? 0xFFE2E5EC : 0xFF33363C);
+                }
+                modeChips[i].setBackground(gd);
+            }
+
+            boolean isCustom = selectedMode[0] == LineSettings.DEFAULT_BUBBLE_CUSTOM;
+            if (sendSwatches[0] != null) {
+                refreshSwatchBorders(activity, sendSwatches[0], isCustom ? customSend[0] : 0);
+            }
+            if (recvSwatches[0] != null) {
+                refreshSwatchBorders(activity, recvSwatches[0], isCustom ? customRecv[0] : 0);
+            }
+        };
+
+        for (int i = 0; i < modeValues.length; i++) {
+            final int mode = modeValues[i];
+            modeChips[i].setOnClickListener(v -> {
+                PixelNativeEnhancements.tick(v);
+                selectedMode[0] = mode;
+                if (mode == LineSettings.DEFAULT_BUBBLE_CUSTOM && customSend[0] == 0 && customRecv[0] == 0) {
+                    customSend[0] = PRESET_COLORS[0];
+                }
+                refreshDialogUi.run();
+            });
+        }
+
+        final Runnable onCustomColorPicked = () -> {
+            selectedMode[0] = LineSettings.DEFAULT_BUBBLE_CUSTOM;
+            refreshDialogUi.run();
+        };
+
+        // Sent custom bubble picker header + optional classic green reset action
+        LinearLayout sendHeader = new LinearLayout(activity);
+        sendHeader.setOrientation(LinearLayout.HORIZONTAL);
+        sendHeader.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams shLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        shLp.topMargin = BlurBars.dp(activity, 12f);
+        TextView sendLabel = sectionLabel(activity, zh ? "自訂送出氣泡顏色" : "Custom sent bubble color", palette.accent);
+        sendHeader.addView(sendLabel, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView resetSendBtn = new TextView(activity);
+        resetSendBtn.setText(zh ? "維持經典綠" : "Classic green");
+        resetSendBtn.setTextSize(12f);
+        resetSendBtn.setTextColor(dark ? 0xFFB8BDC7 : 0xFF5F6368);
+        resetSendBtn.setPadding(BlurBars.dp(activity, 8f), BlurBars.dp(activity, 4f), BlurBars.dp(activity, 4f), BlurBars.dp(activity, 8f));
+        PixelNativeEnhancements.enhanceInteractive(resetSendBtn);
+        resetSendBtn.setOnClickListener(v -> {
+            PixelNativeEnhancements.tick(v);
+            customSend[0] = 0;
+            refreshDialogUi.run();
+        });
+        sendHeader.addView(resetSendBtn);
+        root.addView(sendHeader, shLp);
+        root.addView(buildSwatchGrid(activity, customSend, onCustomColorPicked, sendSwatches));
+        root.addView(buildHexRow(activity, customSend, onCustomColorPicked, zh));
+
+        // Received custom bubble picker header + optional default white/dark reset action
+        LinearLayout recvHeader = new LinearLayout(activity);
+        recvHeader.setOrientation(LinearLayout.HORIZONTAL);
+        recvHeader.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams rhLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rhLp.topMargin = BlurBars.dp(activity, 14f);
+        TextView recvLabel = sectionLabel(activity, zh ? "自訂接收氣泡顏色" : "Custom received bubble color", palette.accent);
+        recvHeader.addView(recvLabel, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView resetRecvBtn = new TextView(activity);
+        resetRecvBtn.setText(zh ? "維持原版" : "Default");
+        resetRecvBtn.setTextSize(12f);
+        resetRecvBtn.setTextColor(dark ? 0xFFB8BDC7 : 0xFF5F6368);
+        resetRecvBtn.setPadding(BlurBars.dp(activity, 8f), BlurBars.dp(activity, 4f), BlurBars.dp(activity, 4f), BlurBars.dp(activity, 8f));
+        PixelNativeEnhancements.enhanceInteractive(resetRecvBtn);
+        resetRecvBtn.setOnClickListener(v -> {
+            PixelNativeEnhancements.tick(v);
+            customRecv[0] = 0;
+            refreshDialogUi.run();
+        });
+        recvHeader.addView(resetRecvBtn);
+        root.addView(recvHeader, rhLp);
+        root.addView(buildSwatchGrid(activity, customRecv, onCustomColorPicked, recvSwatches));
+        root.addView(buildHexRow(activity, customRecv, onCustomColorPicked, zh));
+
+        refreshDialogUi.run();
+
+        AlertDialog dialog = new AlertDialog.Builder(activity)
+                .setTitle(zh ? "預設聊天氣泡配色" : "Default chat bubble color")
+                .setView(scroll)
+                .setPositiveButton(zh ? "套用" : "Apply", (d, w) -> {
+                    PixelNativeEnhancements.confirm(scroll);
+                    int modeToSave = selectedMode[0];
+                    if (modeToSave == LineSettings.DEFAULT_BUBBLE_CUSTOM && customSend[0] == 0 && customRecv[0] == 0) {
+                        modeToSave = LineSettings.DEFAULT_BUBBLE_LINE_CLASSIC;
+                    }
+                    LineSettings.setChatBubbleDefaultMode(modeToSave);
+                    LineSettings.setChatBubbleDefaultColors(customSend[0], customRecv[0]);
+                    BUBBLE_APPLIED.clear();
+                    BUBBLE_BG_REF.clear();
+                    if (onChanged != null) {
+                        onChanged.run();
+                    }
+                })
+                .setNeutralButton(zh ? "經典綠色" : "Classic green", (d, w) -> {
+                    PixelNativeEnhancements.confirm(scroll);
+                    LineSettings.setChatBubbleDefaultMode(LineSettings.DEFAULT_BUBBLE_LINE_CLASSIC);
+                    LineSettings.setChatBubbleDefaultColors(0, 0);
+                    BUBBLE_APPLIED.clear();
+                    BUBBLE_BG_REF.clear();
+                    if (onChanged != null) {
+                        onChanged.run();
+                    }
+                })
+                .setNegativeButton(zh ? "取消" : "Cancel", null)
+                .create();
+        PixelNativeEnhancements.applyDialogBlur(dialog);
+        dialog.show();
+        PixelNativeEnhancements.constrainDialogWidth(dialog, 520.0f);
+    }
+
     static void invalidatePaletteCache() {
         Palette.cachedLight = null;
         Palette.cachedDark = null;
@@ -4568,7 +4920,14 @@ final class MaterialYou {
         previewBox.addView(recvPreview, recvLp);
 
         final TextView sendPreview = new TextView(activity);
-        sendPreview.setText(zh ? "我的 Material You 氣泡" : "My Material You bubble");
+        int bubbleModeForPreview = LineSettings.chatBubbleDefaultMode();
+        if (bubbleModeForPreview == LineSettings.DEFAULT_BUBBLE_MATERIAL_YOU) {
+            sendPreview.setText(zh ? "我的 Material You 氣泡" : "My Material You bubble");
+        } else if (bubbleModeForPreview == LineSettings.DEFAULT_BUBBLE_CUSTOM) {
+            sendPreview.setText(zh ? "我的自訂顏色氣泡" : "My custom bubble");
+        } else {
+            sendPreview.setText(zh ? "LINE 經典綠色氣泡" : "LINE classic green bubble");
+        }
         sendPreview.setTextSize(13f);
         sendPreview.setPadding(BlurBars.dp(activity, 12f), BlurBars.dp(activity, 7f), BlurBars.dp(activity, 12f), BlurBars.dp(activity, 7f));
         LinearLayout.LayoutParams sendLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -4758,8 +5117,18 @@ final class MaterialYou {
             badgeTv.setBackground(bgGd);
             badgeTv.setTextColor(previewPal.onBadge);
 
-            stylePreviewBubble(recvPreview, previewPal.receiveBubble, BlurBars.dp(activity, 14f));
-            stylePreviewBubble(sendPreview, previewPal.sendBubble, BlurBars.dp(activity, 14f));
+            int effPreviewSend = resolveGlobalDefaultBubbleColor(true, previewPal);
+            int effPreviewRecv = resolveGlobalDefaultBubbleColor(false, previewPal);
+            stylePreviewBubble(
+                    recvPreview,
+                    effPreviewRecv != 0 ? effPreviewRecv : (dark ? 0xFF2B2D31 : 0xFFFFFFFF),
+                    BlurBars.dp(activity, 14f)
+            );
+            stylePreviewBubble(
+                    sendPreview,
+                    effPreviewSend != 0 ? effPreviewSend : LINE_CLASSIC_GREEN,
+                    BlurBars.dp(activity, 14f)
+            );
 
             GradientDrawable navOuterGd = new GradientDrawable();
             navOuterGd.setCornerRadius(BlurBars.dp(activity, 999f));
