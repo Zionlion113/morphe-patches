@@ -63,7 +63,14 @@ public final class LineSettings {
     static final String MATERIAL_YOU_SEED_COLOR = "material_you_seed_color";
     static final String MATERIAL_YOU_NAV_BAR = "material_you_nav_bar";
     static final String NAV_BAR_PILL = "nav_bar_pill";
+    static final int DEFAULT_BUBBLE_LINE_CLASSIC = 0;
+    static final int DEFAULT_BUBBLE_MATERIAL_YOU = 1;
+    static final int DEFAULT_BUBBLE_CUSTOM = 2;
+
     static final String CHAT_BUBBLE_WALLPAPER = "chat_bubble_wallpaper";
+    static final String CHAT_BUBBLE_DEFAULT_MODE = "chat_bubble_default_mode";
+    static final String CHAT_BUBBLE_DEFAULT_SEND = "chat_bubble_default_send";
+    static final String CHAT_BUBBLE_DEFAULT_RECV = "chat_bubble_default_recv";
     static final String CHAT_BUBBLE_SEND_PREFIX = "chat_bubble_send_";
     static final String CHAT_BUBBLE_RECV_PREFIX = "chat_bubble_recv_";
     static final String PIXEL_ULTRA_HDR = "pixel_ultra_hdr";
@@ -227,6 +234,33 @@ public final class LineSettings {
 
     public static boolean chatBubbleWallpaper() {
         return isOn(CHAT_BUBBLE_WALLPAPER, true);
+    }
+
+    public static int chatBubbleDefaultMode() {
+        int value = number(CHAT_BUBBLE_DEFAULT_MODE, DEFAULT_BUBBLE_LINE_CLASSIC);
+        return value >= DEFAULT_BUBBLE_LINE_CLASSIC && value <= DEFAULT_BUBBLE_CUSTOM
+                ? value
+                : DEFAULT_BUBBLE_LINE_CLASSIC;
+    }
+
+    public static void setChatBubbleDefaultMode(int mode) {
+        int normalized = (mode >= DEFAULT_BUBBLE_LINE_CLASSIC && mode <= DEFAULT_BUBBLE_CUSTOM)
+                ? mode
+                : DEFAULT_BUBBLE_LINE_CLASSIC;
+        setNumber(CHAT_BUBBLE_DEFAULT_MODE, normalized);
+    }
+
+    public static int chatBubbleDefaultSendColor() {
+        return number(CHAT_BUBBLE_DEFAULT_SEND, 0);
+    }
+
+    public static int chatBubbleDefaultReceiveColor() {
+        return number(CHAT_BUBBLE_DEFAULT_RECV, 0);
+    }
+
+    public static void setChatBubbleDefaultColors(int sendColor, int receiveColor) {
+        setNumber(CHAT_BUBBLE_DEFAULT_SEND, sendColor == 0 ? 0 : (sendColor | 0xFF000000));
+        setNumber(CHAT_BUBBLE_DEFAULT_RECV, receiveColor == 0 ? 0 : (receiveColor | 0xFF000000));
     }
 
     private static volatile Boolean hasCustomChatBubbles;
